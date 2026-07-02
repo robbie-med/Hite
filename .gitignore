@@ -1,0 +1,6 @@
+# Never commit the copyrighted source material or plaintext question bank —
+# only the encrypted docs/data.enc belongs in the repo.
+*.pdf
+questions.json
+.salt
+__pycache__/
