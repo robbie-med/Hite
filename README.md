@@ -38,6 +38,17 @@ question.
   study calendar, review forecast, confidence calibration, category mastery
   with Wilson 95% intervals (weakest first, one-tap Practice), pacing,
   session history with per-question drill-down.
+- **Full ITE simulation** — take a whole form in order at exam pace. For
+  forms with ABFM scoring data (2024, 2025) you get the **official 200–800
+  scaled score** from that year's raw-to-scaled table (items ABFM removed
+  from scoring are excluded), plotted against the FMCE passing standard
+  (380), the "reassuring" 440 line and national PGY-1/2/3 means.
+- **Official blueprint categories** — every 2024/2025 item carries its ABFM
+  blueprint area (Acute Care and Diagnosis 35%, Chronic Care Management
+  25%, Emergent and Urgent Care 20%, Preventive Care 15%, Foundations of
+  Care 5%). Filter by area in the builder and Browse; Stats shows accuracy
+  per area and a blueprint-weighted accuracy. Items ABFM deleted from
+  scoring are flagged and kept out of new sessions by default.
 - **Daily goal, streak, ITE countdown** with a per-day plan.
 - **Light / dark / auto theme, text size**, keyboard shortcuts on desktop.
 
@@ -78,8 +89,9 @@ key and `data.enc` format are unchanged.
 | `styles.css` | Design tokens (light/dark) and components |
 | `app.js` | Login/decryption, session engine, scheduling, analytics, backup |
 | `data.enc` | Encrypted, gzipped question bank |
+| `exam-meta.js` | Public ABFM exam metadata from the ITE handbooks: blueprint roster per item, deleted items, raw→scaled tables, PGY norms. No question content. Joined to the bank at load time, so adding a year needs no rebuild of `data.enc` |
 | `sw.js`, `manifest.webmanifest`, `icon-*.png` | PWA offline/install support |
-| `parse_pdfs.py` | Parses the ABFM PDFs into `questions.json` |
+| `parse_pdfs.py` | Parses the ABFM PDFs (or pasted `.txt` of them) into `questions.json` |
 | `build.py` | Cleans, gzips, encrypts the bank → `data.enc`; stamps the version |
 | `questions.json`, `*.pdf`, `.salt` | Local only — gitignored |
 
@@ -91,7 +103,7 @@ login screen is the decryption key.
 ## Build & deploy
 
 ```bash
-python3 parse_pdfs.py                        # only when PDFs change
+python3 parse_pdfs.py --dir ~/ite            # only when PDFs change; writes questions.json here
 python3 build.py --password 'YourPassword'   # rebuild data.enc + stamp version
 python3 build.py --assets-only               # app code changed only: re-stamp version
 git add -A && git commit -m "update" && git push
@@ -104,6 +116,18 @@ query on the asset tags, which is what makes clients pick up new files.
 
 Re-running `build.py` with the same password keeps "Remember this device"
 logins working (the PBKDF2 salt is persisted in `.salt`).
+
+`parse_pdfs.py` expects `<year>ITEMultChoice.pdf` and `<year>ITECritique.pdf`
+in `--dir`. If a PDF is unavailable, a `<year>ITECritique.txt` (text copied
+out of the PDF) works in its place. It splits items by sequential number so
+stems that contain "15. On examination…" or forms whose PDF text order puts
+an item a page late parse correctly; it prints any item it could not parse
+or could not find an answer key for. Source PDFs, `.txt` files and
+`questions.json` are gitignored and must never be committed.
+
+To add a new ITE year's scoring data, paste that year's handbook Tables 2–4
+(norms, raw→scaled, questions by blueprint category) and deleted-item list
+into `exam-meta.js` following the existing entries.
 
 ## Local preview
 
@@ -127,7 +151,11 @@ fetches `data.enc` and registers a service worker.)
 
 ## Notes
 
-- Category labels are keyword-derived (`parse_pdfs.py`) and approximate.
+- Body-system category labels are keyword-derived (`parse_pdfs.py`) and
+  approximate; blueprint areas for 2024/2025 are the official ABFM ones.
+- Scaled scores use ABFM's published full-form conversion tables, which the
+  handbooks say apply only to the entire form, so Hite never extrapolates a
+  scaled score from a partial session.
 - Changing the password: delete `.salt`, re-run `build.py` with the new
   password, and push. Remembered devices will be asked to log in again.
 - Hite is not affiliated with the ABFM.

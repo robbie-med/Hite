@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Parse ABFM ITE PDFs into structured JSON."""
+"""Parse ABFM ITE PDFs into structured JSON.
+
+Usage:
+    python3 parse_pdfs.py --dir /path/to/pdfs     # writes questions.json next to this script
+
+For each year it looks for <year>ITEMultChoice.pdf and <year>ITECritique.pdf.
+If a PDF is missing, a .txt with the same name (text pasted from the PDF) is
+used instead.  None of these inputs may be committed (see .gitignore).
+"""
 import pymupdf
 import json
 import re
@@ -20,59 +28,62 @@ def extract_text(pdf_path):
     ]
     return "\n".join(lines)
 
+def split_questions(text, max_items=200, window=6):
+    """Yield (number, body) for each question.
+
+    A line beginning "N. " starts a question only if N has not been seen yet
+    and is close to the next expected number.  This rejects numbers inside a
+    stem ("...Glasgow Coma Scale score of\n15. On examination..." in 2025
+    item 123), tolerates an indented first item ("\n 1. \n..." in 2024) and
+    survives PDFs whose text order puts an item a page late (2024 item 100
+    comes after 102 in the extracted text)."""
+    starts, seen, expected = [], set(), 1
+    for m in re.finditer(r'(?:^|\n)[ \t]*(\d+)\.[ \t\n]', text):
+        n = int(m.group(1))
+        if n in seen or not (1 <= n <= max_items) or abs(n - expected) > window:
+            continue
+        seen.add(n)
+        starts.append((n, m.start(1)))
+        expected = max(seen) + 1
+    for i, (num, pos) in enumerate(starts):
+        end = starts[i + 1][1] if i + 1 < len(starts) else len(text)
+        yield num, text[pos:end]
+
+
 def parse_multchoice(text):
     """Parse mult choice PDF into list of {id, question, choices: {A:..., B:...}}."""
-    # Split by question numbers at start of line
-    # Pattern: number followed by period and space at beginning of line
-    parts = re.split(r'\n(?=\d+\.\s)', text)
-    
     questions = []
-    for part in parts:
+    for qnum, part in split_questions(text):
         part = part.strip()
-        if not part:
-            continue
-        
-        # Extract question number
         m = re.match(r'(\d+)\.\s*(.*)', part, re.DOTALL)
         if not m:
             continue
-        
-        qnum = int(m.group(1))
         rest = m.group(2)
-        
-        # Split choices: look for A) ... B) ... etc
-        # Choices may span multiple lines
+
+        # Choices may span multiple lines: A) ... B) ... etc
         choices = {}
-        choice_pattern = re.compile(r'\n([A-E])\)\s+(.*?)(?=\n[A-E]\)|\n\d+\.\s|\Z)', re.DOTALL)
-        
-        # First, extract the question stem (everything before A))
+        choice_pattern = re.compile(r'\n([A-E])\)\s+(.*?)(?=\n[A-E]\)|\Z)', re.DOTALL)
+
+        # The question stem is everything before the first "A)" line
         stem_match = re.match(r'(.*?)\nA\)\s', rest, re.DOTALL)
-        if stem_match:
-            stem = stem_match.group(1).strip()
-        else:
-            stem = rest.strip()
-        
-        # Extract choices
+        stem = stem_match.group(1).strip() if stem_match else rest.strip()
+
         for cm in choice_pattern.finditer(rest):
-            letter = cm.group(1)
-            choice_text = cm.group(2).strip()
-            # Clean up newlines within choices
-            choice_text = re.sub(r'\s+', ' ', choice_text)
-            choices[letter] = choice_text
-        
+            choices[cm.group(1)] = re.sub(r'\s+', ' ', cm.group(2).strip())
+
         if stem and choices:
-            questions.append({
-                "id": qnum,
-                "question": stem,
-                "choices": choices
-            })
-    
+            questions.append({"id": qnum, "question": stem, "choices": choices})
+        else:
+            print(f"  WARNING: could not parse item {qnum}", file=sys.stderr)
+    questions.sort(key=lambda q: q["id"])
     return questions
 
 def parse_critique(text):
-    """Parse critique PDF into dict of {item_num: {answer, explanation}}."""
-    # Split by "Item N"
-    parts = re.split(r'\nItem\s+(\d+)\s*\n', text)
+    """Parse critique PDF (or pasted text) into dict of {item_num: {answer, explanation}}."""
+    # Drop running page headers such as "2025 ITE RATIONALE BOOK – PAGE 12".
+    text = re.sub(r'(?im)^\s*\d{4}\s+ITE\s+RATIONALE\s+BOOK\s*[–-]\s*PAGE\s+\d+\s*$', '', text)
+    # Split by "Item N" (tolerate trailing spaces / blank lines)
+    parts = re.split(r'\n\s*Item\s+(\d+)\s*\n', '\n' + text)
     
     critiques = {}
     
@@ -319,58 +330,68 @@ def classify_domain(question_text):
         return max(scores, key=scores.get)
     return "General Medicine"
 
+def read_source(path_pdf, path_txt):
+    """Return text from the PDF if present, otherwise from a .txt with the same
+    content (e.g. pasted from the PDF), otherwise None."""
+    if path_pdf.exists():
+        return extract_text(str(path_pdf))
+    if path_txt.exists():
+        return path_txt.read_text()
+    return None
+
+
 def main():
-    ite_dir = Path("/home/user/Projects/ite")
-    
+    import argparse
+    here = Path(__file__).resolve().parent
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--dir", default=str(here),
+                    help="Folder holding <year>ITEMultChoice.pdf and <year>ITECritique.pdf (or .txt). Default: repo root")
+    ap.add_argument("--years", default="2022,2023,2024,2025")
+    ap.add_argument("--out", default=str(here / "questions.json"))
+    args = ap.parse_args()
+    ite_dir = Path(args.dir)
+
     all_questions = []
-    years = ["2022", "2023", "2024", "2025"]
-    
-    for year in years:
-        mc_path = ite_dir / f"{year}ITEMultChoice.pdf"
-        crit_path = ite_dir / f"{year}ITECritique.pdf"
-        
-        if not mc_path.exists():
-            print(f"Skipping {year}: no mult choice PDF", file=sys.stderr)
+    for year in [y.strip() for y in args.years.split(",") if y.strip()]:
+        mc_text = read_source(ite_dir / f"{year}ITEMultChoice.pdf", ite_dir / f"{year}ITEMultChoice.txt")
+        if mc_text is None:
+            print(f"Skipping {year}: no mult choice PDF/txt", file=sys.stderr)
             continue
-        
         print(f"Parsing {year}...")
-        
-        mc_text = extract_text(str(mc_path))
         questions = parse_multchoice(mc_text)
-        print(f"  Found {len(questions)} questions in mult choice")
-        
-        if crit_path.exists():
-            crit_text = extract_text(str(crit_path))
+        ids = {q["id"] for q in questions}
+        missing = sorted(set(range(1, max(ids) + 1)) - ids) if ids else []
+        print(f"  Found {len(questions)} questions in mult choice" + (f" (missing: {missing})" if missing else ""))
+
+        crit_text = read_source(ite_dir / f"{year}ITECritique.pdf", ite_dir / f"{year}ITECritique.txt")
+        if crit_text is not None:
             critiques = parse_critique(crit_text)
             print(f"  Found {len(critiques)} critiques")
         else:
             critiques = {}
-            print(f"  No critique PDF for {year}")
-        
-        # Merge
+            print(f"  No critique PDF/txt for {year}")
+
+        unanswered = []
         for q in questions:
-            qnum = q["id"]
-            crit = critiques.get(qnum, {})
+            crit = critiques.get(q["id"], {})
             q["year"] = int(year)
             q["correctAnswer"] = crit.get("answer", "")
             q["explanation"] = crit.get("explanation", "")
             q["domain"] = classify_domain(q["question"])
-        
+            if not q["correctAnswer"]:
+                unanswered.append(q["id"])
+        if unanswered:
+            print(f"  WARNING: no answer key for items {unanswered} (they will be left out of the bank)", file=sys.stderr)
         all_questions.extend(questions)
-    
-    # Save to JSON
-    out_path = ite_dir / "questions.json"
-    with open(out_path, "w") as f:
+
+    with open(args.out, "w") as f:
         json.dump(all_questions, f, indent=2, ensure_ascii=False)
-    
     print(f"\nTotal questions: {len(all_questions)}")
-    print(f"Saved to {out_path}")
-    
-    # Print domain stats
+    print(f"Saved to {args.out}")
+
     domains = {}
     for q in all_questions:
-        d = q["domain"]
-        domains[d] = domains.get(d, 0) + 1
+        domains[q["domain"]] = domains.get(q["domain"], 0) + 1
     print("\nDomain distribution:")
     for d, c in sorted(domains.items(), key=lambda x: -x[1]):
         print(f"  {d}: {c}")

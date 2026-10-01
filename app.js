@@ -6,7 +6,7 @@
    an app update: see migrate() for how older data is carried
    forward (and snapshotted first).
    ============================================================ */
-const APP_VERSION = '31e27de593e6';
+const APP_VERSION = 'fa016da643e5';
 const $ = id => document.getElementById(id);
 const PBKDF2_ITER = 310000;
 const DAY = 86400000;
@@ -22,6 +22,12 @@ const fmtClock = ms => { const s = Math.max(0, Math.floor(ms / 1000)); const m =
 const relDays = t => { const d = Math.round((t - now()) / DAY); if (d <= 0) return 'now'; if (d === 1) return 'tomorrow'; if (d < 14) return `in ${d} days`; if (d < 60) return `in ${Math.round(d / 7)} weeks`; return `in ${Math.round(d / 30)} months`; };
 const agoDays = t => { const d = Math.floor((now() - t) / DAY); return d === 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`; };
 const CONF_LABEL = ['Guess', 'Fairly sure', 'Certain'];
+/* Public ABFM exam metadata (exam-meta.js): blueprint categories per item, items
+   removed from scoring, raw→scaled tables, national means. Optional. */
+const META = window.EXAM_META || { blueprint: {}, blueprintShort: {}, years: {} };
+const BLUEPRINTS = Object.keys(META.blueprint);
+const bpShort = b => (META.blueprintShort && META.blueprintShort[b]) || b;
+const yearMeta = y => META.years[y] || null;
 
 /* ---------------- storage ---------------- */
 let storageWarned = false;
@@ -38,7 +44,8 @@ const store = {
 };
 const DEFAULTS = {
   theme: 'auto', textSize: 1, confidence: true, autoAdvance: false, dailyGoal: 20, examDate: '',
-  secPerQ: 72, backupEvery: 7, smartSize: 20, showTimer: true, revealInBrowse: false,
+  secPerQ: 76, backupEvery: 7, smartSize: 20, showTimer: true, revealInBrowse: false,
+  pgy: 0, includeDeleted: false,
 };
 let settings = Object.assign({}, DEFAULTS, store.get('settings', {}));
 function saveSettings() { store.set('settings', settings); applyAppearance(); }
@@ -62,6 +69,10 @@ function stats() { if (!STATS) STATS = qstats(); return STATS; }
 function persistStats() { return store.set('qstats', stats()); }
 function entry(k) { const st = stats(); return st[k] || (st[k] = { s: 0, c: 0, lc: 0, l: 0 }); }
 const attempted = s => s && s.s > 0;
+/* Items ABFM removed from scoring (ambiguous / multiple correct answers) are kept
+   out of fresh picks unless the user opts in; they stay reviewable. */
+const pickable = q => !q.x || settings.includeDeleted;
+const pickableKeys = () => QUESTIONS.filter(pickable).map(q => q.k);
 
 /* ---------------- migration (never destructive) ---------------- */
 function migrate() {
@@ -211,6 +222,13 @@ $('loginForm').addEventListener('submit', async e => {
 
 function enterApp() {
   BY_KEY = new Map(QUESTIONS.map(q => [q.k, q]));
+  const rosterIdx = {};
+  for (const y in META.years) { const m = {}; for (const cat in META.years[y].roster) META.years[y].roster[cat].forEach(n => m[n] = cat); rosterIdx[y] = m; }
+  QUESTIONS.forEach(q => {
+    const ym = yearMeta(q.y);
+    q.b = ym && rosterIdx[q.y] ? rosterIdx[q.y][q.n] || null : null;   // official blueprint category
+    q.x = ym && ym.deleted[q.n] ? ym.deleted[q.n] : null;             // removed from ABFM scoring (reason)
+  });
   YEARS = [...new Set(QUESTIONS.map(q => q.y))].sort();
   DOMAINS = [...new Set(QUESTIONS.map(q => q.d))].sort();
   SEARCH_INDEX = QUESTIONS.map(q => ({ k: q.k, t: (q.q + ' ' + Object.values(q.c).join(' ') + ' ' + q.e).toLowerCase() }));
@@ -251,7 +269,7 @@ function overall() {
 const isDue = (s, t = now()) => attempted(s) && (s.due || 0) <= t;
 function missedKeys() { const st = stats(); return Object.keys(st).filter(k => attempted(st[k]) && st[k].lc === 0 && BY_KEY.has(k)); }
 function flaggedKeys() { const st = stats(); return Object.keys(st).filter(k => st[k].fl && BY_KEY.has(k)); }
-function unseenKeys() { const st = stats(); return QUESTIONS.filter(q => !attempted(st[q.k])).map(q => q.k); }
+function unseenKeys() { const st = stats(); return QUESTIONS.filter(q => pickable(q) && !attempted(st[q.k])).map(q => q.k); }
 function dueKeys() {
   const st = stats(), t = now();
   return Object.keys(st).filter(k => BY_KEY.has(k) && isDue(st[k], t))
@@ -277,11 +295,33 @@ function domainStats() {
   QUESTIONS.forEach(q => { const a = agg[q.d]; a.total++; const s = st[q.k]; if (attempted(s)) { a.c += s.c; a.at += s.s; a.seen++; } });
   return Object.values(agg).map(a => { const [lo, hi] = wilson(a.c, a.at); return Object.assign(a, { pct: a.at ? a.c / a.at : null, lo, hi }); });
 }
+function blueprintStats() {
+  const st = stats(), agg = {};
+  BLUEPRINTS.forEach(b => agg[b] = { b, w: META.blueprint[b], c: 0, at: 0, seen: 0, total: 0 });
+  QUESTIONS.forEach(q => { if (!q.b || !agg[q.b]) return; const a = agg[q.b]; a.total++; const s = st[q.k]; if (attempted(s)) { a.c += s.c; a.at += s.s; a.seen++; } });
+  return Object.values(agg).map(a => { const [lo, hi] = wilson(a.c, a.at); return Object.assign(a, { pct: a.at ? a.c / a.at : null, lo, hi }); });
+}
 function weakDomains() {
   const ds = domainStats().filter(d => d.at >= 5).sort((a, b) => a.lo - b.lo);
   if (!ds.length) return [];
   const cut = Math.max(1, Math.ceil(ds.length / 3));
   return ds.slice(0, cut).filter(d => d.pct < 0.8).map(d => d.d);
+}
+function weakBlueprints() {
+  const bs = blueprintStats().filter(b => b.at >= 8 && b.pct < 0.75).sort((a, b) => a.lo - b.lo);
+  return bs.slice(0, 2).map(b => b.b);
+}
+/* Accuracy weighted by the ABFM blueprint percentages (only over areas with data). */
+function blueprintWeighted() {
+  const bs = blueprintStats().filter(b => b.at >= 5);
+  const w = bs.reduce((s, b) => s + b.w, 0);
+  return w ? { pct: bs.reduce((s, b) => s + b.pct * b.w, 0) / w, covered: w } : null;
+}
+/* Official raw→scaled lookup for a complete form; null when not applicable. */
+function scaledFor(year, raw) {
+  const ym = yearMeta(year); if (!ym) return null;
+  const row = ym.conversion.find(([a, b]) => raw >= a && raw <= b);
+  return row ? row[2] : null;
 }
 function activeDays() {
   const days = new Set(history().map(h => dayKey(h.t)));
@@ -346,9 +386,9 @@ function smartPlan(n = settings.smartSize) {
   const st = stats();
   const due = dueKeys().slice(0, Math.ceil(n / 2));
   const taken = new Set(due);
-  const weak = new Set(weakDomains());
+  const weak = new Set(weakDomains()), weakBp = new Set(weakBlueprints());
   const unseen = shuffle(unseenKeys().filter(k => !taken.has(k)));
-  const weakUnseen = unseen.filter(k => weak.has(BY_KEY.get(k).d));
+  const weakUnseen = unseen.filter(k => { const q = BY_KEY.get(k); return weak.has(q.d) || weakBp.has(q.b); });
   const rest = n - due.length;
   const w = weakUnseen.slice(0, Math.ceil(rest * 0.6));
   w.forEach(k => taken.add(k));
@@ -372,7 +412,7 @@ function describePlan(p) {
 }
 
 /* ---------------- home ---------------- */
-let builderCfg = { mode: 'study', years: [], cats: [], pool: 'all' };
+let builderCfg = { mode: 'study', years: [], cats: [], bp: [], pool: 'all' };
 function buildConfigUI() {
   const yc = $('yearChips'); yc.innerHTML = '';
   const mk = (txt, val, on) => { const c = el('button', 'chip' + (on ? ' on' : ''), txt); c.dataset.val = val; return c; };
@@ -395,6 +435,16 @@ function buildConfigUI() {
     builderCfg.cats = [...cc.querySelectorAll('.chip.on')].map(c => c.dataset.val);
     updateMatchCount();
   });
+  const bc = $('bpChips'); bc.innerHTML = '';
+  if (BLUEPRINTS.length && QUESTIONS.some(q => q.b)) {
+    BLUEPRINTS.forEach(b => { const c = mk(bpShort(b), b, false); c.title = b; c.append(el('span', 'n', META.blueprint[b] + '%')); bc.append(c); });
+    bc.addEventListener('click', e => {
+      const chip = e.target.closest('.chip'); if (!chip) return;
+      chip.classList.toggle('on');
+      builderCfg.bp = [...bc.querySelectorAll('.chip.on')].map(c => c.dataset.val);
+      updateMatchCount();
+    });
+  } else bc.closest('.field').classList.add('hidden');
   $('catClear').addEventListener('click', e => { e.preventDefault(); cc.querySelectorAll('.chip').forEach(c => c.classList.remove('on')); builderCfg.cats = []; updateMatchCount(); });
   [['poolSeg', 'pool'], ['modeSeg', 'mode']].forEach(([id, key]) => $(id).addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
@@ -409,6 +459,8 @@ function builderKeys(cfg = builderCfg) {
   return QUESTIONS
     .filter(q => !cfg.years.length || cfg.years.includes(q.y))
     .filter(q => !cfg.cats.length || cfg.cats.includes(q.d))
+    .filter(q => !cfg.bp || !cfg.bp.length || cfg.bp.includes(q.b))
+    .filter(q => cfg.pool === 'missed' || cfg.pool === 'flagged' || cfg.pool === 'due' || pickable(q))
     .filter(q => {
       const s = st[q.k];
       switch (cfg.pool) {
@@ -430,6 +482,7 @@ function updateMatchCount() {
 function builderLabel(cfg) {
   const parts = [];
   parts.push(cfg.cats.length ? (cfg.cats.length > 2 ? `${cfg.cats.length} categories` : cfg.cats.join(' + ')) : 'All categories');
+  if (cfg.bp && cfg.bp.length) parts.push(cfg.bp.map(bpShort).join(' + '));
   parts.push(cfg.years.length ? cfg.years.join('/') : 'all years');
   if (cfg.pool !== 'all') parts.push({ unseen: 'unseen', due: 'due', missed: 'missed', flagged: 'flagged', weak: 'weak areas' }[cfg.pool]);
   return parts.join(' · ');
@@ -519,7 +572,7 @@ function renderHomeCards(o, weak) {
 }
 function startDomain(d) {
   const st = stats();
-  const pool = QUESTIONS.filter(q => q.d === d);
+  const pool = QUESTIONS.filter(q => (q.d === d || q.b === d) && pickable(q));
   const unseen = pool.filter(q => !attempted(st[q.k])), missed = pool.filter(q => attempted(st[q.k]) && st[q.k].lc === 0);
   let keys = shuffle([...missed.map(q => q.k), ...unseen.map(q => q.k)]).slice(0, 20);
   if (keys.length < 10) keys = shuffle(pool.map(q => q.k)).slice(0, 20);
@@ -534,9 +587,28 @@ function updateBadges(due) {
 $('smartBtn').addEventListener('click', () => { const p = smartPlan(); if (p.keys.length) startQuiz(p.keys, 'Smart session', 'study', { type: 'smart' }); });
 document.querySelectorAll('[data-quick]').forEach(b => b.addEventListener('click', () => {
   const n = +b.dataset.quick;
-  startQuiz(shuffle(QUESTIONS.map(q => q.k)).slice(0, n), `Quick ${n}`, 'study', { type: 'quick', n });
+  startQuiz(shuffle(pickableKeys()).slice(0, n), `Quick ${n}`, 'study', { type: 'quick', n });
 }));
-$('quickTimed').addEventListener('click', () => startQuiz(shuffle(QUESTIONS.map(q => q.k)).slice(0, 40), 'Timed block', 'exam', { type: 'timed', n: 40 }));
+$('quickTimed').addEventListener('click', () => startQuiz(shuffle(pickableKeys()).slice(0, 40), 'Timed block', 'exam', { type: 'timed', n: 40 }));
+$('quickFull').addEventListener('click', openFullIte);
+function fullFormKeys(y) { return QUESTIONS.filter(q => q.y === y).sort((a, b) => a.n - b.n).map(q => q.k); }
+function openFullIte() {
+  sheet('Full ITE simulation', body => {
+    body.append(Object.assign(el('p', 'sub'), { textContent: `Take a whole ITE form in order, timed at ${settings.secPerQ} s/question (${Math.round(META.iteQuestions * settings.secPerQ / 60)} min), no feedback until you submit. Forms with ABFM scoring data give an official scaled score (200–800) and national PGY comparisons.` }));
+    const st = stats();
+    YEARS.forEach(y => {
+      const keys = fullFormKeys(y), ym = yearMeta(y), seen = keys.filter(k => attempted(st[k])).length;
+      const c = el('div', 'card'); c.style.marginBottom = '10px';
+      c.innerHTML = `<div class="row between"><div><h3>ITE ${y}</h3><div class="sub">${keys.length} questions · ${seen} already seen${ym ? ' · <b>scaled score available</b>' : ' · percent only'}</div></div><button class="btn sm">Start</button></div>`;
+      c.querySelector('button').onclick = async () => {
+        closeSheet();
+        if (seen > keys.length / 3 && !(await dialog({ title: 'Seen questions', msg: `You have already seen ${seen} of these ${keys.length} questions, so the score will run high. Start anyway?`, ok: 'Start' }))) return;
+        startQuiz(keys, `Full ITE ${y}`, 'exam', { type: 'full', y });
+      };
+      body.append(c);
+    });
+  });
+}
 $('quickMissed').addEventListener('click', () => { const k = shuffle(missedKeys()); if (k.length) startQuiz(k.slice(0, 40), 'Missed review', 'study', { type: 'missed' }); });
 $('quickFlagged').addEventListener('click', () => { const k = shuffle(flaggedKeys()); if (k.length) startQuiz(k, 'Flagged review', 'study', { type: 'flagged' }); });
 $('resumeBtn').addEventListener('click', resumeSession);
@@ -611,6 +683,8 @@ function renderQuestion() {
   if (quiz.mode === 'exam') { tickTimer(); timerId = setInterval(tickTimer, 1000); } else renderScoreChip();
   const meta = $('qMeta'); meta.innerHTML = '';
   [q.y, q.d, '#' + q.n].forEach(t => meta.append(el('span', '', t)));
+  if (q.b) { const b = el('span', 'bp', bpShort(q.b)); b.title = `ABFM blueprint: ${q.b} (${META.blueprint[q.b]}% of the exam)`; meta.append(b); }
+  if (q.x && quiz.mode === 'study') { const w = el('span', 'warn', '⚠ Removed from scoring'); w.title = `ABFM deleted this item from the ${q.y} ITE scoring (${q.x} reason)`; meta.append(w); }
   if (quiz.mode === 'study' && attempted(s)) meta.append(el('span', 'seen-before', `Seen ×${s.s} · last ${s.lc ? '✓' : '✗'}`));
   const tools = el('div', 'tools');
   const flag = el('button', 'icon-btn' + (isFlagged(k) ? ' on' : ''), '⚑'); flag.setAttribute('aria-label', 'Flag question'); flag.title = 'Flag for review (F)';
@@ -719,6 +793,7 @@ function paintAnswer(a) {
   if (a.sec) metaBits.push(a.sec + 's');
   if (metaBits.length) v.append(el('span', 'meta', metaBits.join(' · ')));
   card.append(v, el('div', 'body', q.e || 'No explanation available for this item.'));
+  if (q.x) card.append(el('div', 'next-due', `ABFM removed this item from ${q.y} scoring for a ${q.x} reason${q.x === 'content' ? ' (ambiguous or more than one defensible answer)' : ''}. Weigh the key accordingly.`));
   if (!a.ok && a.conf === 2) card.append(el('div', 'next-due', 'Confident miss — this one is a misconception worth a note. It comes back tomorrow.'));
   else if (a.ok && a.conf === 0) card.append(el('div', 'next-due', 'Correct, but a guess — scheduled again soon so it actually sticks.'));
   else if (s.due) card.append(el('div', 'next-due', `Next review ${relDays(s.due)}.`));
@@ -823,6 +898,15 @@ function finishQuiz() {
   const score = list.filter(a => a.ok).length;
   const ms = done.mode === 'exam' ? (done.acc + (now() - done.t0)) : list.reduce((s, a) => s + (a.sec || 0) * 1000, 0);
   const rec = { t: done.t, label: done.label, n: list.length, score, d: domTally, mode: done.mode, ms, src: done.src, ans: list.map(a => ({ k: a.k, p: a.pick, ok: a.ok ? 1 : 0, c: a.conf, s: a.sec || 0 })) };
+  if (done.src && done.src.type === 'full') {
+    const y = done.src.y, ym = yearMeta(y);
+    rec.form = y;
+    if (ym) {
+      const scoredAns = list.filter(a => !BY_KEY.get(a.k).x);
+      rec.raw = scoredAns.filter(a => a.ok).length; rec.scoredN = scoredAns.length;
+      rec.scaled = scoredAns.length === ym.scored ? scaledFor(y, rec.raw) : null;
+    }
+  }
   const h = history(); h.unshift(rec);
   if (h.length > 300) h.length = 300;
   h.forEach((x, i) => { if (i >= 120) delete x.ans; });   // keep per-question detail for recent sessions only
@@ -847,6 +931,8 @@ function renderResults(rec) {
   requestAnimationFrame(() => requestAnimationFrame(() => ring.style.strokeDashoffset = 465 * (1 - p / 100)));
   // insights
   const ins = $('resInsights'); ins.innerHTML = '';
+  if (rec.form) ins.append(scaledCard(rec));
+  else if (rec.mode === 'exam') { const nc = normsCard(rec); if (nc) ins.append(nc); }
   const guessesRight = rec.ans.filter(a => a.c === 0 && a.ok).length, certainWrong = rec.ans.filter(a => a.c === 2 && !a.ok).length, certain = rec.ans.filter(a => a.c === 2).length;
   const lines = [];
   if (certain) lines.push(`You said <b>Certain</b> ${certain}× and were right ${certain - certainWrong}×${certainWrong ? ` — the ${certainWrong} confident miss${certainWrong > 1 ? 'es are' : ' is'} your highest-yield review` : ' — well calibrated'}.`);
@@ -869,12 +955,38 @@ function renderResults(rec) {
   $('againBtn').classList.toggle('hidden', !rec.src);
   $('againBtn').onclick = () => againLike(rec.src, rec.mode);
 }
+function scaledCard(rec) {
+  const ym = yearMeta(rec.form), c = el('div', 'card tinted scaled-card'); c.style.marginBottom = '10px';
+  if (!ym) { c.innerHTML = `<div class="lbl">Full ITE ${rec.form}</div><p class="sub">No ABFM scoring table for this form yet, so only percent correct is shown.</p>`; return c; }
+  if (rec.scaled === null || rec.scaled === undefined) { c.innerHTML = `<div class="lbl">Full ITE ${rec.form}</div><p class="sub">The official conversion needs every scored item: this bank has ${rec.scoredN} of ${ym.scored}. Raw ${rec.raw}/${rec.scoredN} on scored items.</p>`; return c; }
+  const sc = rec.scaled, mps = META.minimumPassingScore, re = META.reassuringScore, pos = v => ((v - 200) / 600 * 100).toFixed(1) + '%';
+  const verdict = sc >= re ? `At or above ${re}: ABFM calls this range "very reassuring" for passing the FMCE.` : sc >= mps ? `Above the FMCE passing standard (${mps}), below the ${re} "reassuring" line.` : `Below the FMCE passing standard of ${mps}.`;
+  c.innerHTML = `<div class="lbl">Official ABFM scaled score · ${rec.form} form</div><div class="big">${sc}</div>
+    <div class="sub">raw ${rec.raw} of ${ym.scored} scored items · ±${META.sem} (1 SEM)</div>
+    <div class="scale"><div class="fill" style="width:${pos(sc)}"></div><div class="mark" style="left:${pos(mps)}"><small>pass ${mps}</small></div><div class="mark" style="left:${pos(re)}"><small>${re}</small></div><div class="me" style="left:${pos(sc)}"></div></div>
+    <div class="norms">${[1, 2, 3].map(p => `<span class="${settings.pgy === p ? 'me' : ''}">PGY-${p} mean ${Math.round(ym.norms[p].scaled)}</span>`).join('')}</div>
+    <div class="verdict-line">${verdict} National means are from the ${rec.form} ITE (n=${ym.examinees.toLocaleString()}).</div>`;
+  return c;
+}
+function normsCard(rec) {
+  // Percent-correct benchmarks for exam-mode sessions drawn from forms with national data.
+  const years = {}; rec.ans.forEach(a => { const q = BY_KEY.get(a.k); if (q && yearMeta(q.y)) years[q.y] = (years[q.y] || 0) + 1; });
+  const n = Object.values(years).reduce((s, v) => s + v, 0); if (n < Math.max(10, rec.n * 0.8)) return null;
+  const mean = p => Object.entries(years).reduce((s, [y, cnt]) => s + yearMeta(+y).norms[p].pct * cnt, 0) / n;
+  const mine = rec.score / rec.n * 100;
+  const c = el('div', 'card'); c.style.marginBottom = '10px';
+  c.innerHTML = `<h3>Against national ITE means</h3><div class="sub">Percent correct on these forms · you ${Math.round(mine)}%</div>
+    <div class="norms" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${[1, 2, 3].map(p => `<span class="pill-btn ${settings.pgy === p ? 'on' : ''}" style="cursor:default">PGY-${p} ${mean(p).toFixed(0)}%</span>`).join('')}</div>
+    <div class="verdict-line">Small samples swing a lot: ${rec.n} questions has a 95% interval of about ±${Math.round(196 * Math.sqrt(0.25 / rec.n))} points. Set your training year in More → Study settings.</div>`;
+  return c;
+}
 function againLike(src, mode) {
   if (!src) return;
   switch (src.type) {
     case 'smart': { const p = smartPlan(); return p.keys.length && startQuiz(p.keys, 'Smart session', 'study', src); }
-    case 'quick': return startQuiz(shuffle(QUESTIONS.map(q => q.k)).slice(0, src.n), `Quick ${src.n}`, 'study', src);
-    case 'timed': return startQuiz(shuffle(QUESTIONS.map(q => q.k)).slice(0, src.n), 'Timed block', 'exam', src);
+    case 'quick': return startQuiz(shuffle(pickableKeys()).slice(0, src.n), `Quick ${src.n}`, 'study', src);
+    case 'timed': return startQuiz(shuffle(pickableKeys()).slice(0, src.n), 'Timed block', 'exam', src);
+    case 'full': return startQuiz(fullFormKeys(src.y), `Full ITE ${src.y}`, 'exam', src);
     case 'missed': { const k = shuffle(missedKeys()); return k.length ? startQuiz(k.slice(0, 40), 'Missed review', 'study', src) : toast('Nothing missed to review'); }
     case 'flagged': { const k = shuffle(flaggedKeys()); return k.length ? startQuiz(k, 'Flagged review', 'study', src) : toast('Nothing flagged'); }
     case 'domain': return startDomain(src.d);
@@ -947,13 +1059,14 @@ $('doneBtn').addEventListener('click', () => showView('home'));
 /* ---------------- browse ---------------- */
 let browseShown = 50, browseKeys = [];
 function buildBrowseUI() {
-  const by = $('bYear'), bc = $('bCat');
+  const by = $('bYear'), bc = $('bCat'), bb = $('bBP');
   YEARS.forEach(y => by.append(new Option(y, y)));
   DOMAINS.forEach(d => bc.append(new Option(d, d)));
+  if (QUESTIONS.some(q => q.b)) BLUEPRINTS.forEach(b => bb.append(new Option(`${b} (${META.blueprint[b]}%)`, b))); else bb.classList.add('hidden');
   let t = null;
   $('searchInput').addEventListener('input', () => { clearTimeout(t); t = setTimeout(renderBrowse, 120); $('searchClear').classList.toggle('hidden', !$('searchInput').value); });
   $('searchClear').addEventListener('click', () => { $('searchInput').value = ''; $('searchClear').classList.add('hidden'); renderBrowse(); });
-  [by, bc, $('bStatus')].forEach(s => s.addEventListener('change', renderBrowse));
+  [by, bc, bb, $('bStatus')].forEach(s => s.addEventListener('change', renderBrowse));
   $('browseMore').addEventListener('click', () => { browseShown += 50; drawBrowseList(); });
   $('browseQuiz').addEventListener('click', () => {
     const keys = shuffle(browseKeys).slice(0, 100);
@@ -963,11 +1076,12 @@ function buildBrowseUI() {
 }
 function renderBrowse() {
   const qtxt = $('searchInput').value.trim().toLowerCase(), toks = qtxt.split(/\s+/).filter(Boolean);
-  const y = $('bYear').value, d = $('bCat').value, status = $('bStatus').value, st = stats(), t = now();
+  const y = $('bYear').value, d = $('bCat').value, bp = $('bBP').value, status = $('bStatus').value, st = stats(), t = now();
   browseKeys = [];
   for (const q of QUESTIONS) {
     if (y && String(q.y) !== y) continue;
     if (d && q.d !== d) continue;
+    if (bp && q.b !== bp) continue;
     const s = st[q.k];
     if (status === 'unseen' && attempted(s)) continue;
     if (status === 'correct' && !(attempted(s) && s.lc)) continue;
@@ -997,6 +1111,8 @@ function drawBrowseList(toks) {
     body.innerHTML = highlight(snippet, toks);
     const mt = el('div', 'mt');
     mt.append(el('span', '', `${q.y} · #${q.n}`), el('span', '', q.d));
+    if (q.b) mt.append(el('span', '', bpShort(q.b)));
+    if (q.x) mt.append(el('span', 'f', '⚠ removed from scoring'));
     if (s && s.fl) mt.append(el('span', 'f', '⚑ flagged'));
     if (s && s.nt) mt.append(el('span', '', '📝 note'));
     if (attempted(s)) mt.append(el('span', '', `${s.c}/${s.s} correct`));
@@ -1030,7 +1146,7 @@ function renderStats() {
   $('sWeek').textContent = wk.n ? pct(wk.c, wk.n) + '%' : '–';
   $('sRet').textContent = rt.n >= 5 ? pct(rt.c, rt.n) + '%' : '–';
   $('sRet').parentElement.title = 'Accuracy when re-answering a question 7+ days after the last attempt';
-  renderTrend(); renderCalendar(); renderForecast(); renderCalibration(); renderMastery(); renderPace(); renderHistory();
+  renderTrend(); renderSims(); renderCalendar(); renderForecast(); renderCalibration(); renderMastery(); renderBlueprint(); renderPace(); renderHistory();
   $('statsNote').innerHTML = `${o.attempts} answers · ${o.seen}/${QUESTIONS.length} questions seen · 1st-try accuracy counts only the first time you saw each question · retention = accuracy on re-attempts ≥7 days apart`;
 }
 function renderTrend() {
@@ -1122,6 +1238,42 @@ function renderMastery() {
   });
   box.append(Object.assign(el('div', 'stat-legend'), { innerHTML: '<span>shaded band = 95% confidence interval (Wilson)</span><span>sorted by the pessimistic bound</span>' }));
 }
+function renderBlueprint() {
+  const box = $('blueprintCard'), rows = blueprintStats();
+  if (!rows.length || !QUESTIONS.some(q => q.b)) { box.innerHTML = '<div class="empty">Official blueprint categories are available for forms listed in exam-meta.js.</div>'; return; }
+  box.innerHTML = '';
+  const bw = blueprintWeighted();
+  if (bw) { const head = el('div', 'kv'); head.style.marginBottom = '10px'; head.innerHTML = `<span class="k">Blueprint-weighted accuracy</span><span class="v">${Math.round(bw.pct * 100)}%</span><span class="k">Covers</span><span class="v">${bw.covered}% of the exam weight</span>`; box.append(head); }
+  rows.sort((a, b) => b.w - a.w).forEach(r => {
+    const row = el('div', 'mastery-row');
+    const p = r.at ? Math.round(r.pct * 100) : null, low = r.at && r.at < 8;
+    const color = p === null ? 'var(--surface3)' : p >= 70 ? 'var(--good)' : p >= 50 ? 'var(--gold)' : 'var(--bad)';
+    row.innerHTML = `<div class="mastery-head"><span class="n"></span><span class="p"></span><button class="go">Practice</button></div>
+      <div class="c" style="color:var(--muted);font-size:0.74rem;margin:-4px 0 6px;font-variant-numeric:tabular-nums"></div>
+      <div class="mbar"><div style="width:${p ?? 0}%;background:${color};opacity:${low ? 0.55 : 1}"></div>${r.at ? `<span class="ci" style="left:${(r.lo * 100).toFixed(1)}%;width:${((r.hi - r.lo) * 100).toFixed(1)}%"></span>` : ''}</div>`;
+    row.querySelector('.n').textContent = `${r.b} · ${r.w}% of exam`;
+    row.querySelector('.c').textContent = `${r.seen}/${r.total} seen · n=${r.at}${low ? ' · low data' : ''}`;
+    row.querySelector('.p').textContent = p === null ? '—' : p + '%';
+    row.querySelector('.go').onclick = () => startDomain(r.b);
+    box.append(row);
+  });
+  box.append(Object.assign(el('div', 'stat-legend'), { innerHTML: '<span>ABFM blueprint weights; items categorised from the ITE handbooks</span><span>band = 95% CI</span>' }));
+}
+function renderSims() {
+  const box = $('simCard'), sims = history().filter(h => h.form);
+  if (!sims.length) { box.innerHTML = `<div class="empty">Take a Full ITE (Home → Full ITE) to get an official 200–800 scaled score and PGY comparisons.</div>`; return; }
+  box.innerHTML = '';
+  sims.slice(0, 10).forEach(rec => {
+    const b = el('button', 'hist-item');
+    const ym = yearMeta(rec.form);
+    const sc = rec.scaled ?? null;
+    b.innerHTML = `<span class="pct" style="width:56px;color:${sc === null ? 'var(--muted)' : sc >= META.reassuringScore ? 'var(--good)' : sc >= META.minimumPassingScore ? 'var(--gold)' : 'var(--bad)'}">${sc === null ? pct(rec.score, rec.n) + '%' : sc}</span><span class="lb"></span><span class="dt">${fmtDate(rec.t)}</span>`;
+    b.querySelector('.lb').textContent = `ITE ${rec.form}` + (sc !== null && ym ? ` · raw ${rec.raw}/${ym.scored} · PGY-${settings.pgy || 3} mean ${Math.round(ym.norms[settings.pgy || 3].scaled)}` : ` · ${rec.score}/${rec.n}`);
+    b.onclick = () => sheet(`Full ITE ${rec.form}`, body => { body.append(scaledCard(rec)); if (rec.ans) { const tabs = el('div', 'review-tabs'), list = el('div'); body.append(tabs, list); renderReview(tabs, list, rec, true); } });
+    box.append(b);
+  });
+  box.append(Object.assign(el('div', 'stat-legend'), { innerHTML: `<span>passing standard ${META.minimumPassingScore} · ≥${META.reassuringScore} reassuring</span><span>SEM ≈ ${META.sem} points</span>` }));
+}
 function renderPace() {
   const a = allAttempts().filter(x => x.sec > 0).slice(0, 200), box = $('paceCard');
   if (a.length < 5) { box.innerHTML = '<div class="empty">Timing appears after a few answered questions.</div>'; return; }
@@ -1196,7 +1348,9 @@ function renderSettings() {
     settingRow('Auto-advance after correct', 'Skip the Next tap when you get it right (1.4 s pause).', switchCtl('autoAdvance')),
     settingRow('Daily goal', 'Questions per day for the streak ring.', selectCtl('dailyGoal', [[10, '10'], [20, '20'], [30, '30'], [40, '40'], [60, '60'], [100, '100']])),
     settingRow('Smart session size', 'Questions in a Study-now session.', selectCtl('smartSize', [[10, '10'], [15, '15'], [20, '20'], [30, '30'], [40, '40']])),
-    settingRow('Exam pace', 'Seconds per question in timed blocks. The ITE gives about 72.', selectCtl('secPerQ', [[60, '60 s'], [72, '72 s (ITE)'], [90, '90 s'], [120, '120 s']])),
+    settingRow('Exam pace', 'Seconds per question in timed blocks. The FMCE allows 95 min per 75 questions (76 s).', selectCtl('secPerQ', [[60, '60 s'], [72, '72 s'], [76, '76 s (FMCE)'], [90, '90 s'], [120, '120 s']])),
+    settingRow('Training year', 'Highlights your PGY in national comparisons.', selectCtl('pgy', [[0, 'Not set'], [1, 'PGY-1'], [2, 'PGY-2'], [3, 'PGY-3']])),
+    settingRow('Include items ABFM removed from scoring', 'Off keeps the few ambiguous items (deleted for content reasons) out of new sessions. They stay in Browse.', switchCtl('includeDeleted')),
     settingRow('Show countdown in timed blocks', 'Off shows answered count instead of the clock.', switchCtl('showTimer')),
     settingRow('Backup reminder', 'Nudge after sessions when a backup is overdue.', selectCtl('backupEvery', [[0, 'Off'], [1, 'Daily'], [3, 'Every 3 days'], [7, 'Weekly'], [14, 'Every 2 weeks']])),
     settingRow('Show answers in Browse', 'Off hides the answer until you tap Reveal, so browsing is still retrieval practice.', switchCtl('revealInBrowse')),
@@ -1221,7 +1375,9 @@ function renderAbout() {
       <li><b>Metacognition.</b> Rating confidence before you see the answer exposes overconfidence and flags lucky guesses so they are not counted as learned (Koriat &amp; Bjork 2005; Butler, Karpicke &amp; Roediger 2008). Confident misses are prioritised, because correcting a held misconception yields the most.</li>
       <li><b>Feedback and elaboration.</b> Immediate explanations after each item (Butler, Karpicke &amp; Roediger 2007) plus a one-line note in your own words (Dunlosky's "elaborative interrogation").</li>
       <li><b>Honest analytics.</b> First-try accuracy, 7-day retention and Wilson confidence intervals keep small samples from fooling you.</li>
+      <li><b>Official exam data.</b> Blueprint categories per item, items ABFM removed from scoring, raw-to-scaled conversion and national PGY means come from the ABFM ITE Score Results Handbooks (${Object.keys(META.years).join(', ') || 'none loaded'}); blueprint weights and timing from the FMCE Information Booklet. Sub-scores by area are hypothesis-generating, as ABFM itself cautions.</li>
     </ul>
+    ${BLUEPRINTS.length ? `<div class="kv" style="margin-top:12px">${BLUEPRINTS.map(b => `<span class="k">${b}</span><span class="v">${META.blueprint[b]}%</span>`).join('')}</div>` : ''}
     <p class="cite" style="margin-top:12px">Bank: ABFM ITE ${YEARS[0]}–${YEARS[YEARS.length - 1]}, ${QUESTIONS.length} items. Category labels are keyword-derived and approximate. Hite is not affiliated with the ABFM.</p>`;
   $('aboutFoot').innerHTML = `Hite v${APP_VERSION.replace('__VERSION__', 'dev')} · progress is stored only on this device<br>Built for family medicine residents. Thanks to my colleague <b>NR</b> for the inspiration to build this.`;
 }

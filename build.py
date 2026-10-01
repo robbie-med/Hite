@@ -10,7 +10,7 @@ Usage:
     python3 build.py --password 'YourSecretPassword'   # rebuild data.enc + stamp version
     python3 build.py --assets-only                     # app code changed only: re-stamp version
 
-The version hash covers data.enc, index.html, app.js and styles.css; it is
+The version hash covers data.enc, index.html, app.js, styles.css and exam-meta.js; it is
 stamped into sw.js (cache name), app.js (About screen) and the ?v= query on
 the asset tags in index.html so every client picks up the new files.
 
@@ -141,7 +141,7 @@ def stamp_version() -> str:
     """Hash the deployable inputs and write the hash into every file that carries it."""
     h = hashlib.sha256()
     h.update((DOCS / "data.enc").read_bytes())
-    for name in ("index.html", "app.js", "styles.css"):
+    for name in ("index.html", "app.js", "styles.css", "exam-meta.js"):
         h.update(_normalized(DOCS / name))
     ver = h.hexdigest()[:12]
     for name in VERSION_FILES:

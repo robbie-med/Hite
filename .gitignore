@@ -4,3 +4,5 @@
 questions.json
 .salt
 __pycache__/
+*.txt
+critiques/

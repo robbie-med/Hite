@@ -23,7 +23,7 @@
   } catch (e) {}
 })();
 </script>
-<link rel="stylesheet" href="styles.css?v=31e27de593e6">
+<link rel="stylesheet" href="styles.css?v=fa016da643e5">
 </head>
 <body>
 
@@ -104,6 +104,7 @@
         <button class="quick-btn" id="quickTimed"><div class="big">⏱</div><div class="t">Timed 40</div><div class="s" id="timedSub">exam pace</div></button>
         <button class="quick-btn" id="quickMissed"><div class="big">🔁</div><div class="t">Missed</div><div class="s" id="missedCount">0 to review</div></button>
         <button class="quick-btn" id="quickFlagged"><div class="big">⚑</div><div class="t">Flagged</div><div class="s" id="flaggedCount">none yet</div></button>
+        <button class="quick-btn" id="quickFull"><div class="big">🎓</div><div class="t">Full ITE</div><div class="s">200 Q · scaled score</div></button>
       </div>
 
       <h2 class="section">Custom session</h2>
@@ -123,6 +124,10 @@
         <div class="field">
           <label><span>Categories</span><button type="button" class="link-btn muted small" id="catClear" style="text-transform:none;letter-spacing:0">Clear</button></label>
           <div class="chip-row" id="catChips"></div>
+        </div>
+        <div class="field">
+          <label><span>Blueprint area</span><span class="muted" style="text-transform:none;letter-spacing:0;font-weight:500">ABFM exam weight</span></label>
+          <div class="chip-row" id="bpChips"></div>
         </div>
         <div class="field">
           <label>Question pool</label>
@@ -207,6 +212,7 @@
       <div class="browse-filters">
         <select id="bYear"><option value="">All years</option></select>
         <select id="bCat"><option value="">All categories</option></select>
+        <select id="bBP"><option value="">All blueprint areas</option></select>
         <select id="bStatus">
           <option value="">Any status</option>
           <option value="unseen">Unseen</option>
@@ -233,6 +239,8 @@
       </div>
       <h2 class="section">Score trend</h2>
       <div class="card chart-card"><div id="trendChart"></div></div>
+      <h2 class="section">Full ITE simulations</h2>
+      <div class="card" id="simCard"></div>
       <h2 class="section">Study calendar</h2>
       <div class="card" id="calendarCard"></div>
       <h2 class="section">Review forecast</h2>
@@ -241,6 +249,8 @@
       <div class="card" id="calibCard"></div>
       <h2 class="section">Category mastery <span class="small muted" style="text-transform:none;letter-spacing:0;font-weight:500">weakest first</span></h2>
       <div class="card" id="masteryList"></div>
+      <h2 class="section">Blueprint areas <span class="small muted" style="text-transform:none;letter-spacing:0;font-weight:500">official ABFM categories</span></h2>
+      <div class="card" id="blueprintCard"></div>
       <h2 class="section">Pace</h2>
       <div class="card" id="paceCard"></div>
       <h2 class="section">Recent sessions</h2>
@@ -322,6 +332,7 @@
 <div id="toastHost"></div>
 <div id="updateHost"></div>
 
-<script src="app.js?v=31e27de593e6"></script>
+<script src="exam-meta.js?v=fa016da643e5"></script>
+<script src="app.js?v=fa016da643e5"></script>
 </body>
 </html>

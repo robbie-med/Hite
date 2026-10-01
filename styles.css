@@ -266,7 +266,8 @@ h2.section .link { text-transform: none; letter-spacing: 0; font-size: 0.8rem; f
 .resume-card .go-btn { background: var(--accent); color: var(--on-accent); font-weight: 700; font-size: 0.84rem; padding: 9px 16px; border-radius: 99px; flex: none; }
 .resume-card .discard { background: none; color: var(--muted); padding: 9px 6px; font-weight: 600; font-size: 0.84rem; }
 
-.quick-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.quick-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+@media (max-width: 600px) { .quick-row { grid-template-columns: repeat(3, 1fr); } }
 .quick-btn { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 13px 4px 11px; text-align: center; transition: border-color 0.15s, transform 0.1s; }
 .quick-btn:active { transform: scale(0.97); }
 .quick-btn:disabled { opacity: 0.45; }
@@ -318,6 +319,19 @@ details.builder[open] > summary .chev { transform: rotate(180deg); }
 .q-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 12px; align-items: center; }
 .q-meta span { font-size: 0.7rem; font-weight: 600; color: var(--muted); background: var(--surface2); padding: 3px 10px; border-radius: 99px; }
 .q-meta span.seen-before { color: var(--accent); background: var(--accent-soft); }
+.q-meta span.bp { color: var(--text2); border: 1px solid var(--border); background: transparent; }
+.q-meta span.warn { color: var(--gold); background: var(--gold-soft); }
+.scaled-card { text-align: center; }
+.scaled-card .big { font-size: 2.6rem; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.scaled-card .lbl { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.scaled-card .norms { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; margin-top: 12px; }
+.scaled-card .norms span { font-size: 0.8rem; color: var(--muted); background: var(--surface2); padding: 5px 10px; border-radius: 99px; font-variant-numeric: tabular-nums; }
+.scaled-card .norms span.me { color: var(--text); border: 1px solid var(--accent); }
+.scaled-card .scale { position: relative; height: 10px; background: var(--surface3); border-radius: 5px; margin: 16px 8px 22px; }
+.scaled-card .scale .fill { position: absolute; left: 0; top: 0; height: 100%; border-radius: 5px; background: linear-gradient(90deg, var(--bad), var(--gold) 35%, var(--good) 55%); opacity: 0.9; }
+.scaled-card .scale .mark { position: absolute; top: -4px; width: 2px; height: 18px; background: var(--text); transform: translateX(-50%); }
+.scaled-card .scale .mark small { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); color: var(--muted); font-size: 0.62rem; white-space: nowrap; }
+.scaled-card .scale .me { position: absolute; top: -5px; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); border: 3px solid var(--surface); transform: translate(-50%, 0); box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
 .q-meta .tools { margin-left: auto; display: flex; gap: 6px; }
 .q-text { font-size: 1.02rem; margin-bottom: 18px; }
 .q-text p { white-space: pre-line; }
