@@ -6,7 +6,7 @@
    an app update: see migrate() for how older data is carried
    forward (and snapshotted first).
    ============================================================ */
-const APP_VERSION = 'fa016da643e5';
+const APP_VERSION = '6bddd78b019b';
 const $ = id => document.getElementById(id);
 const PBKDF2_ITER = 310000;
 const DAY = 86400000;

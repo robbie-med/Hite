@@ -22,10 +22,14 @@ def extract_text(pdf_path):
     doc.close()
     # Drop page-number footers (bare 1-3 digit lines) and "Item #N" image-page
     # headers, which otherwise leak into the last answer choice on each page.
-    lines = [
-        ln for ln in text.split("\n")
-        if not re.fullmatch(r"\s*\d{1,3}\s*", ln) and not re.fullmatch(r"\s*Item\s*#\d+\s*", ln)
-    ]
+    # A bare number right after a bare "A)" label is a numeric answer choice
+    # (NNT, Tanner stage, hours: 2022 item 167, 2023 items 47/115/116), not a footer.
+    lines, prev = [], ""
+    for ln in text.split("\n"):
+        footer = re.fullmatch(r"\s*\d{1,3}\s*", ln) and not re.fullmatch(r"\s*[A-E]\)\s*", prev)
+        if not footer and not re.fullmatch(r"\s*Item\s*#\d+\s*", ln):
+            lines.append(ln)
+        prev = ln
     return "\n".join(lines)
 
 def split_questions(text, max_items=200, window=6):

@@ -2,7 +2,7 @@
    VERSION is stamped by build.py; a new version installs in the background and
    waits until the user taps "Reload" (or closes the app) so a mid-session update
    never interrupts anyone. localStorage (progress) is untouched by updates. */
-const VERSION = 'fa016da643e5';
+const VERSION = '6bddd78b019b';
 const CACHE = 'ite-' + VERSION;
 const ASSETS = [
   './',
