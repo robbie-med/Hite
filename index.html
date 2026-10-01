@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#0a0c12" id="themeColor">
+<meta name="theme-color" content="#f8f9ff" id="themeColor">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,17 +13,8 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>Hite · ITE Study</title>
-<script>
-/* Apply the saved theme before first paint to avoid a flash. */
-(function () {
-  try {
-    var s = JSON.parse(localStorage.getItem('ite.settings') || '{}');
-    if (s.theme === 'light' || s.theme === 'dark') document.documentElement.dataset.theme = s.theme;
-    if (s.textSize) document.documentElement.style.setProperty('--fs', s.textSize);
-  } catch (e) {}
-})();
-</script>
-<link rel="stylesheet" href="styles.css?v=6bddd78b019b">
+<script src="theme.js?v=fe32def84bf4"></script>
+<link rel="stylesheet" href="styles.css?v=fe32def84bf4">
 </head>
 <body>
 
@@ -36,7 +27,7 @@
     <form id="loginForm" autocomplete="on">
       <div class="pw-wrap">
         <input type="password" id="pw" placeholder="Password" autocomplete="current-password" required>
-        <button type="button" class="eye" id="pwEye" aria-label="Show password">Show</button>
+        <button type="button" class="eye icon-btn" id="pwEye" aria-label="Show password"><span class="ms" aria-hidden="true">visibility</span></button>
       </div>
       <label class="remember"><input type="checkbox" id="rememberMe" checked> Remember this device</label>
       <button class="btn" id="unlockBtn" type="submit">Unlock</button>
@@ -51,12 +42,6 @@
   <header class="appbar" id="appbar">
     <div class="appbar-inner">
       <div class="brand"><span class="dot">ITE</span> Hite <small>ITE study</small></div>
-      <div class="desktop-tabs">
-        <button data-nav="home">Home</button>
-        <button data-nav="browse">Browse</button>
-        <button data-nav="stats">Stats</button>
-        <button data-nav="more">More</button>
-      </div>
     </div>
   </header>
 
@@ -73,9 +58,9 @@
       </div>
 
       <button class="cta" id="smartBtn">
-        <span class="ico">🧠</span>
+        <span class="ico" data-ic="study"></span>
         <span><span class="t" style="display:block">Study now</span><span class="s" id="smartSub">Smart session</span></span>
-        <span class="go">›</span>
+        <span class="go ms" aria-hidden="true">arrow_forward</span>
       </button>
 
       <div class="resume-card hidden" id="resumeCard">
@@ -100,16 +85,16 @@
 
       <h2 class="section">Quick start</h2>
       <div class="quick-row">
-        <button class="quick-btn" data-quick="10"><div class="big">⚡️</div><div class="t">Quick 10</div><div class="s">mixed, tutor mode</div></button>
-        <button class="quick-btn" id="quickTimed"><div class="big">⏱</div><div class="t">Timed 40</div><div class="s" id="timedSub">exam pace</div></button>
-        <button class="quick-btn" id="quickMissed"><div class="big">🔁</div><div class="t">Missed</div><div class="s" id="missedCount">0 to review</div></button>
-        <button class="quick-btn" id="quickFlagged"><div class="big">⚑</div><div class="t">Flagged</div><div class="s" id="flaggedCount">none yet</div></button>
-        <button class="quick-btn" id="quickFull"><div class="big">🎓</div><div class="t">Full ITE</div><div class="s">200 Q · scaled score</div></button>
+        <button class="quick-btn" data-quick="10"><div class="big" data-ic="quick"></div><div class="t">Quick 10</div><div class="s">Mixed, instant feedback</div></button>
+        <button class="quick-btn" id="quickTimed"><div class="big" data-ic="timer"></div><div class="t">Timed 40</div><div class="s" id="timedSub">exam pace</div></button>
+        <button class="quick-btn" id="quickMissed"><div class="big" data-ic="missed"></div><div class="t">Missed</div><div class="s" id="missedCount">0 to review</div></button>
+        <button class="quick-btn" id="quickFlagged"><div class="big" data-ic="flag"></div><div class="t">Flagged</div><div class="s" id="flaggedCount">none yet</div></button>
+        <button class="quick-btn" id="quickFull"><div class="big" data-ic="full"></div><div class="t">Full ITE</div><div class="s">200 questions · scaled score</div></button>
       </div>
 
       <h2 class="section">Custom session</h2>
       <details class="card builder" id="builder">
-        <summary><span>Build your own</span><span class="chev">▼</span></summary>
+        <summary><span>Build your own</span><span class="chev ms" aria-hidden="true">expand_more</span></summary>
         <div class="field">
           <label>Mode</label>
           <div class="seg" id="modeSeg">
@@ -160,7 +145,7 @@
     <section class="view" id="view-quiz">
       <div class="quiz-top">
         <div class="quiz-top-row">
-          <button class="icon-btn" id="quitBtn" aria-label="Exit session">✕</button>
+          <button class="icon-btn" id="quitBtn" aria-label="Exit session"><span class="ms" aria-hidden="true">close</span></button>
           <button class="quiz-pos" id="quizPos" aria-label="Open question navigator"></button>
           <div class="quiz-score" id="quizScore"></div>
         </div>
@@ -180,8 +165,8 @@
       <div class="ring-wrap">
         <div class="ring">
           <svg viewBox="0 0 168 168" width="168" height="168">
-            <circle cx="84" cy="84" r="74" fill="none" stroke="var(--surface3)" stroke-width="11"/>
-            <circle id="ringFg" cx="84" cy="84" r="74" fill="none" stroke="var(--good)" stroke-width="11"
+            <circle cx="84" cy="84" r="74" fill="none" stroke="var(--md-secondary-container)" stroke-width="10"/>
+            <circle id="ringFg" cx="84" cy="84" r="74" fill="none" stroke="var(--good)" stroke-width="10"
                     stroke-linecap="round" stroke-dasharray="465" stroke-dashoffset="465" style="transition: stroke-dashoffset 0.9s cubic-bezier(0.2,0.7,0.3,1)"/>
           </svg>
           <div class="val"><div><div class="p" id="resPct">0%</div><div class="d" id="resFrac"></div></div></div>
@@ -205,9 +190,9 @@
     <!-- ============ BROWSE ============ -->
     <section class="view" id="view-browse">
       <div class="search-wrap">
-        <span class="mag">🔍</span>
-        <input type="search" id="searchInput" placeholder="Search questions, answers, explanations…" autocomplete="off" autocorrect="off" spellcheck="false">
-        <button class="clr hidden" id="searchClear" aria-label="Clear search">✕</button>
+        <span class="mag ms" aria-hidden="true">search</span>
+        <input type="search" id="searchInput" placeholder="Search the question bank" aria-label="Search questions, answers and explanations" autocomplete="off" autocorrect="off" spellcheck="false">
+        <button class="clr icon-btn hidden" id="searchClear" aria-label="Clear search"><span class="ms" aria-hidden="true">close</span></button>
       </div>
       <div class="browse-filters">
         <select id="bYear"><option value="">All years</option></select>
@@ -304,35 +289,23 @@
   </div>
   <div class="dlg-backdrop" id="sheetBackdrop">
     <div class="dlg wide" id="sheetBox" role="dialog" aria-modal="true">
-      <div class="sheet-close"><h3 id="sheetTitle"></h3><button class="icon-btn" id="sheetClose" aria-label="Close">✕</button></div>
+      <div class="sheet-close"><h3 id="sheetTitle"></h3><button class="icon-btn" id="sheetClose" aria-label="Close"><span class="ms" aria-hidden="true">close</span></button></div>
       <div class="sheet-body" id="sheetBody"></div>
     </div>
   </div>
 
   <nav class="tabbar" id="tabbar">
-    <button data-nav="home" class="on">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
-      Home
-    </button>
-    <button data-nav="browse">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-      Browse
-    </button>
-    <button data-nav="stats">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg>
-      Stats
-    </button>
-    <button data-nav="more">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
-      More
-    </button>
+    <button data-nav="home" class="on"><span class="nav-ic"><span class="ms" aria-hidden="true">home</span></span>Home</button>
+    <button data-nav="browse"><span class="nav-ic"><span class="ms" aria-hidden="true">search</span></span>Browse</button>
+    <button data-nav="stats"><span class="nav-ic"><span class="ms" aria-hidden="true">bar_chart</span></span>Stats</button>
+    <button data-nav="more"><span class="nav-ic"><span class="ms" aria-hidden="true">more_horiz</span></span>More</button>
   </nav>
 </div>
 
 <div id="toastHost"></div>
 <div id="updateHost"></div>
 
-<script src="exam-meta.js?v=6bddd78b019b"></script>
-<script src="app.js?v=6bddd78b019b"></script>
+<script src="exam-meta.js?v=fe32def84bf4"></script>
+<script src="app.js?v=fe32def84bf4"></script>
 </body>
 </html>

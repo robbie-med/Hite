@@ -6,7 +6,7 @@
    an app update: see migrate() for how older data is carried
    forward (and snapshotted first).
    ============================================================ */
-const APP_VERSION = '6bddd78b019b';
+const APP_VERSION = 'fe32def84bf4';
 const $ = id => document.getElementById(id);
 const PBKDF2_ITER = 310000;
 const DAY = 86400000;
@@ -22,6 +22,24 @@ const fmtClock = ms => { const s = Math.max(0, Math.floor(ms / 1000)); const m =
 const relDays = t => { const d = Math.round((t - now()) / DAY); if (d <= 0) return 'now'; if (d === 1) return 'tomorrow'; if (d < 14) return `in ${d} days`; if (d < 60) return `in ${Math.round(d / 7)} weeks`; return `in ${Math.round(d / 30)} months`; };
 const agoDays = t => { const d = Math.floor((now() - t) / DAY); return d === 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`; };
 const CONF_LABEL = ['Guess', 'Fairly sure', 'Certain'];
+/* Icons: Material Symbols (default) or the emoji/glyph set, per the "Icons" setting.
+   name → [Material Symbols ligature, emoji/glyph fallback] */
+const ICONS = {
+  study: ['psychology', '🧠'], quick: ['bolt', '⚡️'], timer: ['timer', '⏱'], missed: ['replay', '🔁'],
+  flag: ['flag', '⚑'], full: ['school', '🎓'], install: ['add_to_home_screen', '📲'], backup: ['save', '💾'],
+  warn: ['warning', '⚠'], note: ['edit_note', '📝'], check: ['check', '✓'], cross: ['close', '✗'],
+  unseen: ['radio_button_unchecked', '○'], blank: ['remove', '–'], strike: ['block', '⊘'], dismiss: ['close', '✕'],
+  guess: ['casino', '🎲'], fair: ['thumb_up', '🤔'], certain: ['verified', '💪'], event: ['event', '📅'],
+  weak: ['trending_down', '📉'], goal: ['check', '✓'],
+};
+const CONF_IC = ['guess', 'fair', 'certain'];
+const useEmoji = () => settings.icons === 'emoji';
+function ic(name, cls = '') {
+  const [sym, emo] = ICONS[name] || [name, ''];
+  return useEmoji() ? `<span class="ic emo ${cls}" aria-hidden="true">${emo}</span>` : `<span class="ic ms ${cls}" aria-hidden="true">${sym}</span>`;
+}
+const icEl = (name, cls) => { const t = document.createElement('template'); t.innerHTML = ic(name, cls); return t.content.firstChild; };
+function paintIcons(root = document) { root.querySelectorAll('[data-ic]').forEach(e => { e.innerHTML = ic(e.dataset.ic); }); }
 /* Public ABFM exam metadata (exam-meta.js): blueprint categories per item, items
    removed from scoring, raw→scaled tables, national means. Optional. */
 const META = window.EXAM_META || { blueprint: {}, blueprintShort: {}, years: {} };
@@ -45,7 +63,7 @@ const store = {
 const DEFAULTS = {
   theme: 'auto', textSize: 1, confidence: true, autoAdvance: false, dailyGoal: 20, examDate: '',
   secPerQ: 76, backupEvery: 7, smartSize: 20, showTimer: true, revealInBrowse: false,
-  pgy: 0, includeDeleted: false,
+  pgy: 0, includeDeleted: false, seed: '', icons: 'icons',
 };
 let settings = Object.assign({}, DEFAULTS, store.get('settings', {}));
 function saveSettings() { store.set('settings', settings); applyAppearance(); }
@@ -53,6 +71,9 @@ function applyAppearance() {
   const root = document.documentElement;
   if (settings.theme === 'light' || settings.theme === 'dark') root.dataset.theme = settings.theme; else delete root.dataset.theme;
   root.style.setProperty('--fs', settings.textSize);
+  root.dataset.icons = useEmoji() ? 'emoji' : 'icons';
+  if (window.HiteTheme) HiteTheme.apply(settings.seed || HiteTheme.DEFAULT_SEED);
+  paintIcons();
   requestAnimationFrame(() => { $('themeColor').content = getComputedStyle(document.body).backgroundColor; });
 }
 applyAppearance();
@@ -200,7 +221,8 @@ async function boot() {
 }
 $('pwEye').addEventListener('click', () => {
   const p = $('pw'); const show = p.type === 'password';
-  p.type = show ? 'text' : 'password'; $('pwEye').textContent = show ? 'Hide' : 'Show';
+  p.type = show ? 'text' : 'password'; $('pwEye').innerHTML = `<span class="ms" aria-hidden="true">${show ? 'visibility_off' : 'visibility'}</span>`;
+  $('pwEye').setAttribute('aria-label', show ? 'Hide password' : 'Show password');
 });
 $('loginForm').addEventListener('submit', async e => {
   e.preventDefault();
@@ -259,6 +281,7 @@ function showView(name) {
   window.scrollTo(0, 0);
 }
 document.querySelectorAll('[data-nav]').forEach(b => b.addEventListener('click', () => showView(b.dataset.nav)));
+window.addEventListener('scroll', () => $('appbar').classList.toggle('scrolled', window.scrollY > 4), { passive: true });
 
 /* ---------------- derived stats ---------------- */
 function overall() {
@@ -503,7 +526,9 @@ function renderHome() {
   const subs = [];
   if (due) subs.push(`${due} due for review`);
   if (weak && weak.pct < 0.75) subs.push(`weakest: ${weak.d} ${Math.round(weak.pct * 100)}%`);
-  if (!subs.length) subs.push(`${QUESTIONS.length} questions · ${QUESTIONS.length - o.seen} not yet seen`);
+  if (!subs.length) subs.push(`${QUESTIONS.length - o.seen} of ${QUESTIONS.length} not yet seen`);
+  const done = todayCount(), goal = settings.dailyGoal || 20;
+  subs.unshift(done >= goal ? `Daily goal met (${done})` : `${done} of ${goal} today`);
   $('heroSub').textContent = subs.join(' · ');
   $('tDue').textContent = due; $('tileDue').classList.toggle('hot', due > 0);
   $('tAccuracy').textContent = o.attempts ? pct(o.correct, o.attempts) + '%' : '–';
@@ -529,12 +554,17 @@ function renderHome() {
 }
 function renderGoalRing() {
   const done = todayCount(), goal = settings.dailyGoal || 20, p = clamp(done / goal, 0, 1);
-  const r = 27, C = 2 * Math.PI * r;
-  $('goalRing').innerHTML = `<svg viewBox="0 0 64 64" width="64" height="64">
-    <circle cx="32" cy="32" r="${r}" fill="none" stroke="var(--surface3)" stroke-width="6"/>
-    <circle cx="32" cy="32" r="${r}" fill="none" stroke="${p >= 1 ? 'var(--good)' : 'var(--accent)'}" stroke-width="6" stroke-linecap="round"
-      stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${(C * (1 - p)).toFixed(1)}"/></svg>
-    <div class="val"><div>${done}<small>/ ${goal} today</small></div></div>`;
+  /* M3 circular progress: active arc, a small gap, then the track. Only the count sits inside. */
+  const r = 24, C = 2 * Math.PI * r, gap = p > 0 && p < 1 ? 8 : 0, arc = C * p, rest = Math.max(0, C - arc - 2 * gap);
+  const ring = $('goalRing');
+  ring.classList.toggle('done', p >= 1);
+  ring.title = `${done} of ${goal} questions today`;
+  ring.innerHTML = `<svg viewBox="0 0 56 56" width="56" height="56" aria-hidden="true">
+    ${p < 1 ? `<circle cx="28" cy="28" r="${r}" fill="none" stroke="var(--md-secondary-container)" stroke-width="4" stroke-linecap="round"
+      stroke-dasharray="${rest.toFixed(1)} ${C.toFixed(1)}" stroke-dashoffset="${(-(arc + gap)).toFixed(1)}"/>` : ''}
+    ${p > 0 ? `<circle cx="28" cy="28" r="${r}" fill="none" stroke="${p >= 1 ? 'var(--md-good)' : 'var(--md-primary)'}" stroke-width="4" stroke-linecap="round"
+      stroke-dasharray="${arc.toFixed(1)} ${C.toFixed(1)}"/>` : ''}</svg>
+    <div class="val">${p >= 1 ? '<span class="ms" aria-hidden="true">check</span>' : done}</div>`;
 }
 function renderHomeCards(o, weak) {
   const box = $('homeCards'); box.innerHTML = '';
@@ -542,14 +572,14 @@ function renderHomeCards(o, weak) {
   const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
   if (isIOS && !standalone && !store.get('tipInstallDismissed', false)) {
     const c = el('div', 'card tinted tip-card'); c.style.marginTop = '12px';
-    c.innerHTML = `<span class="ico">📲</span><div><h3>Add to Home Screen</h3><div class="sub">Tap <b>Share</b> → <b>Add to Home Screen</b>. You get a full-screen app, and Safari won't clear your progress after a week away (it can for regular tabs).</div></div><button class="x" aria-label="Dismiss">✕</button>`;
+    c.innerHTML = `${ic('install', 'ico')}<div><h3>Add to Home Screen</h3><div class="sub">Tap <b>Share</b> → <b>Add to Home Screen</b>. You get a full-screen app, and Safari won't clear your progress after a week away (it can for regular tabs).</div></div><button class="x icon-btn" aria-label="Dismiss"><span class="ms" aria-hidden="true">close</span></button>`;
     c.querySelector('.x').onclick = () => { store.set('tipInstallDismissed', true); c.remove(); };
     box.append(c);
   }
   if (backupDue()) {
     const c = el('div', 'card warn tip-card'); c.style.marginTop = '12px';
     const lb = store.get('lastBackup', null);
-    c.innerHTML = `<span class="ico">💾</span><div><h3>Back up your progress</h3><div class="sub">${lb ? `Last backup ${agoDays(lb)}` : 'Never backed up'} · ${store.get('sinceBackup', 0)} answers since. Progress is stored only on this device.</div><div class="row" style="margin-top:10px"><button class="btn sm" id="hbBackup">Back up now</button><button class="pill-btn" id="hbLater">Remind me later</button></div></div>`;
+    c.innerHTML = `${ic('backup', 'ico')}<div><h3>Back up your progress</h3><div class="sub">${lb ? `Last backup ${agoDays(lb)}` : 'Never backed up'} · ${store.get('sinceBackup', 0)} answers since. Progress is stored only on this device.</div><div class="row" style="margin-top:10px"><button class="btn sm" id="hbBackup">Back up now</button><button class="btn sm danger" style="color:inherit" id="hbLater">Remind me later</button></div></div>`;
     c.querySelector('#hbBackup').onclick = () => doBackup().then(ok => { if (ok) renderHome(); });
     c.querySelector('#hbLater').onclick = () => { store.set('backupSnoozed', now()); c.remove(); };
     box.append(c);
@@ -559,7 +589,7 @@ function renderHomeCards(o, weak) {
     if (days >= 0) {
       const unseen = QUESTIONS.length - o.seen, perDay = days ? Math.ceil(unseen / days) : unseen;
       const c = el('div', 'card'); c.style.marginTop = '12px';
-      c.innerHTML = `<div class="row between"><div><h3>ITE in ${days} day${days === 1 ? '' : 's'}</h3><div class="sub">${unseen ? `${unseen} unseen · about ${perDay}/day to see everything once` : 'You have seen every question at least once'}${todayCount() < (settings.dailyGoal || 20) ? ` · ${(settings.dailyGoal || 20) - todayCount()} to go today` : ' · goal met today ✓'}</div></div></div>`;
+      c.innerHTML = `<div class="row between"><div><h3>ITE in ${days} day${days === 1 ? '' : 's'}</h3><div class="sub">${unseen ? `${unseen} unseen · about ${perDay}/day to see everything once` : 'You have seen every question at least once'}${todayCount() < (settings.dailyGoal || 20) ? ` · ${(settings.dailyGoal || 20) - todayCount()} to go today` : ' · goal met today'}</div></div></div>`;
       box.append(c);
     }
   }
@@ -684,10 +714,10 @@ function renderQuestion() {
   const meta = $('qMeta'); meta.innerHTML = '';
   [q.y, q.d, '#' + q.n].forEach(t => meta.append(el('span', '', t)));
   if (q.b) { const b = el('span', 'bp', bpShort(q.b)); b.title = `ABFM blueprint: ${q.b} (${META.blueprint[q.b]}% of the exam)`; meta.append(b); }
-  if (q.x && quiz.mode === 'study') { const w = el('span', 'warn', '⚠ Removed from scoring'); w.title = `ABFM deleted this item from the ${q.y} ITE scoring (${q.x} reason)`; meta.append(w); }
-  if (quiz.mode === 'study' && attempted(s)) meta.append(el('span', 'seen-before', `Seen ×${s.s} · last ${s.lc ? '✓' : '✗'}`));
+  if (q.x && quiz.mode === 'study') { const w = el('span', 'warn'); w.innerHTML = ic('warn') + 'Removed from scoring'; w.title = `ABFM deleted this item from the ${q.y} ITE scoring (${q.x} reason)`; meta.append(w); }
+  if (quiz.mode === 'study' && attempted(s)) { const sb = el('span', 'seen-before'); sb.innerHTML = `Seen ×${s.s} · last ${ic(s.lc ? 'check' : 'cross')}`; meta.append(sb); }
   const tools = el('div', 'tools');
-  const flag = el('button', 'icon-btn' + (isFlagged(k) ? ' on' : ''), '⚑'); flag.setAttribute('aria-label', 'Flag question'); flag.title = 'Flag for review (F)';
+  const flag = el('button', 'icon-btn' + (isFlagged(k) ? ' on' : '')); flag.innerHTML = ic('flag'); flag.setAttribute('aria-label', 'Flag question'); flag.title = 'Flag for review (F)';
   flag.onclick = () => { toggleFlag(k); flag.classList.toggle('on', isFlagged(k)); };
   tools.append(flag); meta.append(tools);
   renderStem($('qText'), q.q);
@@ -698,7 +728,7 @@ function renderQuestion() {
     if (struck.includes(L)) b.classList.add('struck');
     if (a && a.pick === L && quiz.mode === 'exam') b.classList.add('sel');
     const lt = el('span', 'letter', L), tx = el('span', 'txt', q.c[L]);
-    const sk = el('button', 'strike', '⊘'); sk.setAttribute('aria-label', 'Eliminate this option'); sk.title = 'Eliminate';
+    const sk = el('button', 'strike'); sk.innerHTML = ic('strike'); sk.setAttribute('aria-label', 'Eliminate this option'); sk.title = 'Eliminate';
     sk.onclick = e => { e.stopPropagation(); toggleStrike(L); };
     b.append(lt, tx, sk);
     b.addEventListener('click', () => onChoice(L));
@@ -713,9 +743,9 @@ function renderQuestion() {
 function renderActions() {
   const box = $('quizActions'); box.innerHTML = '';
   if (quiz.mode === 'exam') {
-    const prev = el('button', 'btn ghost', '‹ Prev'); prev.disabled = quiz.idx === 0; prev.onclick = () => go(quiz.idx - 1);
+    const prev = el('button', 'btn ghost'); prev.innerHTML = '<span class="ms" aria-hidden="true">chevron_left</span>Prev'; prev.disabled = quiz.idx === 0; prev.onclick = () => go(quiz.idx - 1);
     const last = quiz.idx + 1 >= quiz.keys.length;
-    const nxt = el('button', 'btn', last ? 'Submit block' : 'Next ›'); nxt.onclick = () => last ? submitExam() : go(quiz.idx + 1);
+    const nxt = el('button', 'btn'); nxt.innerHTML = last ? 'Submit block' : 'Next<span class="ms" aria-hidden="true">chevron_right</span>'; nxt.onclick = () => last ? submitExam() : go(quiz.idx + 1);
     box.append(prev, nxt);
   } else if (quiz.ans[curKey()]) {
     const nb = el('button', 'btn', quiz.idx + 1 >= quiz.keys.length ? 'See results' : 'Next'); nb.id = 'nextBtn'; nb.onclick = next;
@@ -725,7 +755,7 @@ function renderActions() {
 function renderScoreChip() {
   const vals = Object.values(quiz.ans), c = vals.filter(a => a.ok).length, w = vals.filter(a => a.pick && !a.ok).length;
   const sc = $('quizScore'); sc.className = 'quiz-score';
-  sc.innerHTML = `<span class="g">${c}✓</span>&nbsp; <span class="b">${w}✗</span>`;
+  sc.innerHTML = `<span class="g">${ic('check')}${c}</span>&nbsp; <span class="b">${ic('cross')}${w}</span>`;
 }
 function isFlagged(k) { const s = stats()[k]; return !!(s && s.fl); }
 function toggleFlag(k) {
@@ -757,7 +787,7 @@ function onChoice(L) {
   document.querySelectorAll('.choice').forEach(b => b.classList.toggle('sel', b.dataset.letter === L));
   const cb = $('confBox');
   cb.innerHTML = `<div class="conf-bar"><div class="lbl"><span>How sure are you?</span><span>tap ${L} again to skip</span></div><div class="opts">
-    <button data-c="0">🎲 Guess<small>below 50%</small></button><button data-c="1">🤔 Fairly sure<small>50–85%</small></button><button data-c="2">💪 Certain<small>over 85%</small></button></div></div>`;
+    ${CONF_LABEL.map((l, i) => `<button data-c="${i}">${ic(CONF_IC[i])}${l}<small>${['below 50%', '50–85%', 'over 85%'][i]}</small></button>`).join('')}</div></div>`;
   cb.querySelectorAll('button').forEach(b => b.onclick = () => commit(L, +b.dataset.c));
   cb.firstElementChild.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
@@ -787,7 +817,7 @@ function paintAnswer(a) {
   const box = $('explBox'); box.innerHTML = '';
   const card = el('div', 'expl');
   const v = el('div', 'verdict ' + (a.ok ? 'good' : 'bad'));
-  v.append(el('span', '', a.ok ? '✓ Correct' : `✗ Incorrect — answer is ${q.a}`));
+  { const vt = el('span'); vt.innerHTML = a.ok ? `${ic('check')}Correct` : `${ic('cross')}Incorrect — answer is ${q.a}`; v.append(vt); }
   const metaBits = [];
   if (a.conf >= 0) metaBits.push(CONF_LABEL[a.conf]);
   if (a.sec) metaBits.push(a.sec + 's');
@@ -1015,9 +1045,9 @@ function reviewItem(a) {
   const q = BY_KEY.get(a.k); if (!q) return el('div');
   const item = el('div', 'review-item');
   const head = el('button', 'review-q');
-  const mark = el('span', 'mark ' + (a.p === null ? 'n' : a.ok ? 'g' : 'b'), a.p === null ? '–' : a.ok ? '✓' : '✗');
+  const mark = el('span', 'mark ' + (a.p === null ? 'n' : a.ok ? 'g' : 'b')); mark.innerHTML = ic(a.p === null ? 'blank' : a.ok ? 'check' : 'cross');
   const tx = el('span', 'tx', q.q.split('\n')[0].slice(0, 150) + (q.q.length > 150 ? '…' : ''));
-  const meta = el('span', 'meta', [q.d, a.c >= 0 ? CONF_LABEL[a.c] : null, a.s ? a.s + 's' : null, isFlagged(a.k) ? '⚑ flagged' : null].filter(Boolean).join(' · '));
+  const meta = el('span', 'meta', [q.d, a.c >= 0 ? CONF_LABEL[a.c] : null, a.s ? a.s + 's' : null, isFlagged(a.k) ? 'flagged' : null].filter(Boolean).join(' · '));
   const col = el('span', 'col'); col.append(tx, meta);
   head.append(mark, col);
   const detail = el('div', 'review-detail hidden');
@@ -1044,9 +1074,11 @@ function questionDetail(q, { pick = null, revealed = false } = {}) {
     after.innerHTML = '';
     const ex = el('div', 'ex'); ex.textContent = q.e || 'No explanation available.'; after.append(ex);
     const s = stats()[q.k];
-    if (attempted(s)) { const hist = el('div', 'detail-hist'); hist.textContent = `Answered ${s.s}× · ${s.c} correct · last ${agoDays(s.l)} ${s.lc ? '✓' : '✗'}${s.due ? ` · next review ${relDays(s.due)}` : ''}`; after.append(hist); }
+    if (attempted(s)) { const hist = el('div', 'detail-hist'); hist.textContent = `Answered ${s.s}× · ${s.c} correct · last ${agoDays(s.l)} ${s.lc ? '(right)' : '(missed)'}${s.due ? ` · next review ${relDays(s.due)}` : ''}`; after.append(hist); }
     const tools = el('div', 'row'); tools.style.marginTop = '10px';
-    const flag = el('button', 'pill-btn' + (isFlagged(q.k) ? ' on' : ''), isFlagged(q.k) ? '⚑ Flagged' : '⚑ Flag'); flag.onclick = () => { toggleFlag(q.k); flag.classList.toggle('on', isFlagged(q.k)); flag.textContent = isFlagged(q.k) ? '⚑ Flagged' : '⚑ Flag'; };
+    const flag = el('button', 'pill-btn');
+    const paintFlag = () => { flag.classList.toggle('on', isFlagged(q.k)); flag.innerHTML = ic('flag') + (isFlagged(q.k) ? 'Flagged' : 'Flag'); };
+    paintFlag(); flag.onclick = () => { toggleFlag(q.k); paintFlag(); };
     tools.append(flag); after.append(tools, noteBox(q.k));
   };
   if (revealed) showExpl();
@@ -1066,7 +1098,7 @@ function buildBrowseUI() {
   let t = null;
   $('searchInput').addEventListener('input', () => { clearTimeout(t); t = setTimeout(renderBrowse, 120); $('searchClear').classList.toggle('hidden', !$('searchInput').value); });
   $('searchClear').addEventListener('click', () => { $('searchInput').value = ''; $('searchClear').classList.add('hidden'); renderBrowse(); });
-  [by, bc, bb, $('bStatus')].forEach(s => s.addEventListener('change', renderBrowse));
+  [by, bc, bb, $('bStatus')].forEach(s => s.addEventListener('change', () => { s.classList.toggle('set', !!s.value); renderBrowse(); }));
   $('browseMore').addEventListener('click', () => { browseShown += 50; drawBrowseList(); });
   $('browseQuiz').addEventListener('click', () => {
     const keys = shuffle(browseKeys).slice(0, 100);
@@ -1105,16 +1137,17 @@ function drawBrowseList(toks) {
   browseKeys.slice(0, browseShown).forEach(k => {
     const q = BY_KEY.get(k), s = st[k];
     const b = el('button', 'bitem');
-    const status = el('span', 'st ' + (attempted(s) ? (s.lc ? 'g' : 'b') : 'n'), attempted(s) ? (s.lc ? '✓' : '✗') : '○');
+    const status = el('span', 'st ' + (attempted(s) ? (s.lc ? 'g' : 'b') : 'n')); status.innerHTML = ic(attempted(s) ? (s.lc ? 'check' : 'cross') : 'unseen');
     const body = el('div', 'tx');
     const snippet = snippetFor(q, toks);
     body.innerHTML = highlight(snippet, toks);
     const mt = el('div', 'mt');
     mt.append(el('span', '', `${q.y} · #${q.n}`), el('span', '', q.d));
     if (q.b) mt.append(el('span', '', bpShort(q.b)));
-    if (q.x) mt.append(el('span', 'f', '⚠ removed from scoring'));
-    if (s && s.fl) mt.append(el('span', 'f', '⚑ flagged'));
-    if (s && s.nt) mt.append(el('span', '', '📝 note'));
+    const tag = (cls, name, text) => { const t = el('span', cls); t.innerHTML = ic(name) + esc(text); mt.append(t); };
+    if (q.x) tag('f', 'warn', 'removed from scoring');
+    if (s && s.fl) tag('f', 'flag', 'flagged');
+    if (s && s.nt) tag('', 'note', 'note');
     if (attempted(s)) mt.append(el('span', '', `${s.c}/${s.s} correct`));
     const inner = el('div'); inner.style.flex = '1'; inner.style.minWidth = '0'; inner.append(body, mt);
     b.append(status, inner);
@@ -1209,7 +1242,7 @@ function renderCalibration() {
   const target = [0.4, 0.7, 0.92];
   box.innerHTML = r.map((x, i) => {
     const p = x.n ? x.c / x.n : 0;
-    return `<div class="calib-row"><span class="n">${['🎲 Guess', '🤔 Fairly sure', '💪 Certain'][i]}</span><span class="bar"><div style="width:${p * 100}%;background:${i === 2 && p < 0.8 ? 'var(--bad)' : 'var(--accent)'}"></div><span class="tgt" style="left:${target[i] * 100}%"></span></span><span class="p">${x.n ? Math.round(p * 100) + '%' : '–'} · n=${x.n}</span></div>`;
+    return `<div class="calib-row"><span class="n">${ic(CONF_IC[i])}${CONF_LABEL[i]}</span><span class="bar"><div style="width:${p * 100}%;background:${i === 2 && p < 0.8 ? 'var(--bad)' : 'var(--accent)'}"></div><span class="tgt" style="left:${target[i] * 100}%"></span></span><span class="p">${x.n ? Math.round(p * 100) + '%' : '–'} · n=${x.n}</span></div>`;
   }).join('') + verdictLine(r);
 }
 function verdictLine(r) {
@@ -1358,12 +1391,66 @@ function renderSettings() {
   const date = el('input'); date.type = 'date'; date.value = settings.examDate || '';
   date.onchange = () => { settings.examDate = date.value; saveSettings(); };
   box.append(settingRow('ITE date', 'Shows a countdown and a per-day plan on Home.', date));
+  renderAppearance();
+}
+function segCtl(key, options, after) {
+  const seg = el('div', 'seg');
+  options.forEach(([v, label, icon]) => {
+    const b = el('button', (settings[key] === v ? 'on' : '') + (icon ? ' no-check' : ''));
+    b.innerHTML = (icon ? `<span aria-hidden="true" class="ms${settings[key] === v ? ' fill' : ''}">${icon}</span>` : '') + esc(label);
+    b.setAttribute('aria-pressed', settings[key] === v);
+    b.onclick = () => { settings[key] = v; saveSettings(); renderAppearance(); after && after(); };
+    seg.append(b);
+  });
+  return seg;
+}
+function renderAppearance() {
   const ap = $('appearanceCard'); ap.innerHTML = '';
-  const theme = el('div', 'seg');
-  [['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].forEach(([v, l]) => { const b = el('button', settings.theme === v ? 'on' : '', l); b.onclick = () => { settings.theme = v; saveSettings(); renderSettings(); }; theme.append(b); });
+  const theme = segCtl('theme', [['auto', 'Auto', 'brightness_auto'], ['light', 'Light', 'light_mode'], ['dark', 'Dark', 'dark_mode']]);
+  const icons = segCtl('icons', [['icons', 'Icons'], ['emoji', 'Emoji']]);
   const size = el('div', 'seg');
-  [[0.9, 'A'], [1, 'A'], [1.12, 'A'], [1.25, 'A']].forEach(([v, l], i) => { const b = el('button', settings.textSize === v ? 'on' : '', l); b.style.fontSize = (0.75 + i * 0.12) + 'rem'; b.onclick = () => { settings.textSize = v; saveSettings(); renderSettings(); }; size.append(b); });
-  ap.append(settingRow('Theme', 'Auto follows your device.', theme), settingRow('Text size', '', size));
+  [[0.9, 'A'], [1, 'A'], [1.12, 'A'], [1.25, 'A']].forEach(([v, l], i) => {
+    const b = el('button', settings.textSize === v ? 'on no-check' : 'no-check', l); b.style.fontSize = (0.75 + i * 0.12) + 'rem';
+    b.setAttribute('aria-label', ['Small', 'Default', 'Large', 'Largest'][i] + ' text');
+    b.onclick = () => { settings.textSize = v; saveSettings(); renderAppearance(); }; size.append(b);
+  });
+  const colorRow = settingRow('Colour', 'The whole palette, light and dark, is generated from this colour.', el('span'));
+  colorRow.classList.add('stacked'); colorRow.lastChild.remove(); colorRow.append(swatchPicker());
+  ap.append(settingRow('Theme', 'Auto follows your device.', theme), colorRow,
+    settingRow('Icons', 'Material icons or the original emoji.', icons), settingRow('Text size', '', size));
+}
+/* M3-style colour picker: each swatch previews primary / secondary / tertiary for the current mode. */
+function swatchPicker() {
+  const wrap = el('div', 'swatches');
+  const cur = (settings.seed || HiteTheme.DEFAULT_SEED).toLowerCase();
+  const root = document.documentElement;
+  const dark = root.dataset.theme === 'dark' || (root.dataset.theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+  const paint = (sw, seed) => {
+    const sc = HiteTheme.scheme(seed)[dark ? 'dark' : 'light'];
+    sw.querySelector('.sw-a').style.background = sc.primary;
+    sw.querySelector('.sw-b').style.background = sc['secondary-container'];
+    sw.querySelector('.sw-c').style.background = sc['tertiary-container'];
+  };
+  const choose = seed => { settings.seed = seed; saveSettings(); renderAppearance(); };
+  let presetHit = false;
+  HiteTheme.PRESETS.forEach(([name, seed]) => {
+    const on = seed.toLowerCase() === cur; presetHit = presetHit || on;
+    const sw = el('button', 'swatch' + (on ? ' on' : ''));
+    sw.innerHTML = '<span class="sw-a"></span><span class="sw-b"></span><span class="sw-c"></span><span class="ms" aria-hidden="true">check</span>';
+    sw.title = name; sw.setAttribute('aria-label', name + ' colour'); sw.setAttribute('aria-pressed', on);
+    paint(sw, seed); sw.onclick = () => choose(seed);
+    wrap.append(sw);
+  });
+  const custom = el('label', 'swatch custom' + (presetHit ? '' : ' on'));
+  custom.title = 'Pick any colour';
+  custom.innerHTML = '<span class="sw-a"></span><span class="sw-b"></span><span class="sw-c"></span><span class="ms" aria-hidden="true">check</span><span class="ms add" aria-hidden="true">palette</span><input type="color" aria-label="Pick any colour">';
+  const input = custom.querySelector('input'); input.value = cur;
+  if (!presetHit) paint(custom, cur); else custom.querySelectorAll('.sw-a,.sw-b,.sw-c').forEach(e => e.style.background = 'transparent');
+  let raf = 0;
+  input.addEventListener('input', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => HiteTheme.apply(input.value)); });
+  input.addEventListener('change', () => choose(input.value.toLowerCase()));
+  wrap.append(custom);
+  return wrap;
 }
 function renderAbout() {
   $('aboutCard').innerHTML = `
@@ -1421,8 +1508,8 @@ function renderBackupNudge() {
   if (!backupDue()) return;
   const lb = store.get('lastBackup', null);
   const c = el('div', 'card warn backup-card');
-  c.innerHTML = `<h3>💾 Back up your progress?</h3><div class="sub">${lb ? `Last backup ${agoDays(lb)}` : 'You have never backed up'} · ${store.get('sinceBackup', 0)} answers since. Everything is stored only on this device — a new phone, a cleared browser or a reinstall would lose it.</div>
-    <div class="actions"><button class="btn sm" id="bnNow">Back up now</button><button class="pill-btn" id="bnLater">Not now</button></div>`;
+  c.innerHTML = `<h3>Back up your progress?</h3><div class="sub">${lb ? `Last backup ${agoDays(lb)}` : 'You have never backed up'} · ${store.get('sinceBackup', 0)} answers since. Everything is stored only on this device — a new phone, a cleared browser or a reinstall would lose it.</div>
+    <div class="actions"><button class="btn sm" id="bnNow">Back up now</button><button class="btn sm danger" style="color:inherit" id="bnLater">Not now</button></div>`;
   c.querySelector('#bnNow').onclick = () => doBackup().then(ok => ok && c.remove());
   c.querySelector('#bnLater').onclick = () => { store.set('backupSnoozed', now()); c.remove(); };
   box.append(c);

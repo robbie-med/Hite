@@ -141,7 +141,8 @@ def stamp_version() -> str:
     """Hash the deployable inputs and write the hash into every file that carries it."""
     h = hashlib.sha256()
     h.update((DOCS / "data.enc").read_bytes())
-    for name in ("index.html", "app.js", "styles.css", "exam-meta.js"):
+    h.update((DOCS / "symbols.woff2").read_bytes())
+    for name in ("index.html", "app.js", "styles.css", "exam-meta.js", "theme.js"):
         h.update(_normalized(DOCS / name))
     ver = h.hexdigest()[:12]
     for name in VERSION_FILES:
