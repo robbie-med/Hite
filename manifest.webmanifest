@@ -1,12 +1,15 @@
 {
-  "name": "ITE Quiz",
-  "short_name": "ITE Quiz",
-  "description": "ABFM In-Training Exam practice — 2022-2025",
+  "id": "hite-ite",
+  "name": "Hite — ITE Study",
+  "short_name": "Hite",
+  "description": "Evidence-based ABFM In-Training Exam practice for family medicine residents. Offline, private, spaced repetition.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#0a0c12",
   "theme_color": "#0a0c12",
+  "categories": ["education", "medical"],
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
     { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }

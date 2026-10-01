@@ -7,7 +7,12 @@ password via PBKDF2-SHA256. Output goes to data.enc at the repo root (GitHub
 Pages serves the repo root) so the plaintext bank never enters the git repo.
 
 Usage:
-    python3 build.py --password 'YourSecretPassword'
+    python3 build.py --password 'YourSecretPassword'   # rebuild data.enc + stamp version
+    python3 build.py --assets-only                     # app code changed only: re-stamp version
+
+The version hash covers data.enc, index.html, app.js and styles.css; it is
+stamped into sw.js (cache name), app.js (About screen) and the ?v= query on
+the asset tags in index.html so every client picks up the new files.
 
 The PBKDF2 salt is persisted in .salt (gitignored) so rebuilding with the
 same password keeps "remember this device" logins working.
@@ -116,38 +121,68 @@ def make_icons():
         img.save(DOCS / f"icon-{size}.png")
 
 
-def stamp_sw_version(data: bytes):
-    sw = DOCS / "sw.js"
-    src = sw.read_text()
-    h = hashlib.sha256(data + (DOCS / "index.html").read_bytes()).hexdigest()[:12]
-    src = re.sub(r"const VERSION = '[^']*'", f"const VERSION = '{h}'", src)
-    sw.write_text(src)
-    return h
+VERSION_FILES = ("index.html", "app.js", "sw.js", "styles.css")
+VERSION_PATTERNS = (
+    (r"(const VERSION = ')[^']*(')", r"\g<1>{v}\g<2>"),        # sw.js
+    (r"(const APP_VERSION = ')[^']*(')", r"\g<1>{v}\g<2>"),    # app.js
+    (r"(\?v=)[0-9a-f_A-Z]+", r"\g<1>{v}"),                     # index.html asset tags
+)
+
+
+def _normalized(path: Path) -> bytes:
+    """File contents with any stamped version replaced by a placeholder."""
+    text = path.read_text()
+    for pat, rep in VERSION_PATTERNS:
+        text = re.sub(pat, rep.format(v="__VERSION__"), text)
+    return text.encode()
+
+
+def stamp_version() -> str:
+    """Hash the deployable inputs and write the hash into every file that carries it."""
+    h = hashlib.sha256()
+    h.update((DOCS / "data.enc").read_bytes())
+    for name in ("index.html", "app.js", "styles.css"):
+        h.update(_normalized(DOCS / name))
+    ver = h.hexdigest()[:12]
+    for name in VERSION_FILES:
+        p = DOCS / name
+        text = p.read_text()
+        for pat, rep in VERSION_PATTERNS:
+            text = re.sub(pat, rep.format(v=ver), text)
+        p.write_text(text)
+    return ver
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--password", required=True, help="Password that will unlock the site")
+    ap.add_argument("--password", help="Password that will unlock the site")
+    ap.add_argument("--assets-only", action="store_true",
+                    help="Do not rebuild data.enc; just re-stamp the version (and icons with --icons)")
+    ap.add_argument("--icons", action="store_true", help="Regenerate icon-*.png (needs Pillow)")
     args = ap.parse_args()
 
-    questions = load_questions()
-    domains = {}
-    for q in questions:
-        domains[q["d"]] = domains.get(q["d"], 0) + 1
-    payload = json.dumps(questions, separators=(",", ":"), ensure_ascii=False).encode()
-    gz = gzip.compress(payload, 9)
-    enc = encrypt(gz, args.password, get_salt())
+    if not args.assets_only:
+        if not args.password:
+            ap.error("--password is required unless --assets-only is given")
+        questions = load_questions()
+        domains = {}
+        for q in questions:
+            domains[q["d"]] = domains.get(q["d"], 0) + 1
+        payload = json.dumps(questions, separators=(",", ":"), ensure_ascii=False).encode()
+        gz = gzip.compress(payload, 9)
+        enc = encrypt(gz, args.password, get_salt())
+        (DOCS / "data.enc").write_bytes(enc)
+        print(f"questions : {len(questions)}")
+        print(f"domains   : {len(domains)}")
+        print(f"plaintext : {len(payload):,} bytes")
+        print(f"gzipped   : {len(gz):,} bytes")
+        print(f"encrypted : {len(enc):,} bytes -> data.enc")
+        make_icons()
+    elif args.icons:
+        make_icons()
 
-    (DOCS / "data.enc").write_bytes(enc)
-    make_icons()
-    ver = stamp_sw_version(enc)
-
-    print(f"questions : {len(questions)}")
-    print(f"domains   : {len(domains)}")
-    print(f"plaintext : {len(payload):,} bytes")
-    print(f"gzipped   : {len(gz):,} bytes")
-    print(f"encrypted : {len(enc):,} bytes -> data.enc")
-    print(f"sw version: {ver}")
+    ver = stamp_version()
+    print(f"version   : {ver}  (stamped into sw.js, app.js, index.html)")
 
 
 if __name__ == "__main__":
