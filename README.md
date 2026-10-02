@@ -7,9 +7,9 @@ server or account; progress stays in the browser. Live at
 **https://hite.robbiemed.org**. Thanks to **NR** for the inspiration.
 
 **Bank:** 884 questions with ABFM keys and critiques: complete 2022–2025
-forms, plus the hardest 2020–2021 items (ABFM difficulty 500+). Older items
-were reviewed for currency; outdated 2020–2021 items are hidden by default,
-2022+ items are only labelled. Questions and critiques are © ABFM and are
+forms, plus the hardest 2020–2021 items (ABFM difficulty 500+). Every item
+was reviewed for currency: outdated items from 2022 and earlier are hidden by
+default, 2023+ items are only labelled (toggle per year in Settings). Questions and critiques are © ABFM and are
 stored only encrypted (AES-256-GCM, PBKDF2-SHA256 key from the password).
 
 ## Build

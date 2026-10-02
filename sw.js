@@ -2,7 +2,7 @@
    VERSION is stamped by build.py. A new version installs in the background and
    activates at once; the page reloads into it, or shows a Reload bar mid-quiz.
    localStorage (progress) is untouched by updates. */
-const VERSION = '8b44058801a5';
+const VERSION = 'f935be246e98';
 const CACHE = 'ite-' + VERSION;
 const ASSETS = [
   './',

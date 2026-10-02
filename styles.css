@@ -9,7 +9,7 @@
   font-style: normal;
   font-weight: 100 700;
   font-display: block;
-  src: url(symbols.woff2?v=8b44058801a5) format('woff2');
+  src: url(symbols.woff2?v=f935be246e98) format('woff2');
 }
 :root {
   --fs: 1;
@@ -476,7 +476,7 @@ details.builder[open] > summary .chev { transform: rotate(180deg); }
 @media (prefers-reduced-motion: reduce) { .intro-track { transition: none; } .intro { animation: none; } }
 /* AI currency flags and errata */
 .ai-note { margin-top: 14px; border-radius: var(--shape-lg); padding: 12px 14px; background: var(--md-warn-container); color: var(--md-on-warn-container); font-size: 0.875rem; line-height: 1.5; }
-.ai-note.dated, .ai-note.errata { background: var(--md-sc-high); color: var(--md-on-surface); }
+.ai-note.dated, .ai-note.error, .ai-note.errata { background: var(--md-sc-high); color: var(--md-on-surface); }
 .ai-note .h { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .ai-note .f { margin-top: 6px; font-size: 0.75rem; opacity: 0.8; }
 /* clinical figures */

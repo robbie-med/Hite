@@ -6,7 +6,7 @@
    an app update: see migrate() for how older data is carried
    forward (and snapshotted first).
    ============================================================ */
-const APP_VERSION = '8b44058801a5';
+const APP_VERSION = 'f935be246e98';
 const $ = id => document.getElementById(id);
 const PBKDF2_ITER = 310000;
 const DAY = 86400000;
@@ -842,6 +842,22 @@ function renderStem(container, text) {
     } else { labs = null; if (line.trim()) container.append(el('p', '', line)); }
   });
 }
+/* Taps on answers must never come from scrolling: ignore the click if the finger moved,
+   if the page scrolled during the press, or if the press landed while a fling was still
+   moving (that tap only stops the scroll). Keyboard activation (detail 0) always counts. */
+let lastScrollAt = 0;
+window.addEventListener('scroll', () => { lastScrollAt = now(); }, { passive: true });
+function onTap(node, fn) {
+  let sx = 0, sy = 0, st = 0, scrolledBefore = false;
+  node.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; st = now(); scrolledBefore = st - lastScrollAt < 120; });
+  node.addEventListener('click', e => {
+    if (e.detail !== 0) {
+      const moved = Math.hypot(e.clientX - sx, e.clientY - sy) > 10;
+      if (moved || scrolledBefore || lastScrollAt >= st) { e.preventDefault(); return; }
+    }
+    fn(e);
+  });
+}
 function figures(q) {
   const box = el('div', 'q-figs'); box.dataset.k = q.k;
   if (q.i && q.i.length) {
@@ -889,7 +905,7 @@ function sourceNotes(q) {
   const out = [];
   if (q.ai) {
     const n = el('div', 'ai-note ' + q.ai.s);
-    n.innerHTML = `<div class="h">${ic('warn')}<b>${q.ai.s === 'outdated' ? 'Flagged by AI as likely outdated' : 'AI note: the explanation is dated'}</b></div><div class="b"></div><div class="f">AI review, Oct 2026. Judged against what the ITE currently expects; verify before relying on it.</div>`;
+    n.innerHTML = `<div class="h">${ic('warn')}<b>${{ outdated: 'Flagged by AI as likely outdated', error: 'AI note: error in the explanation' }[q.ai.s] || 'AI note: the explanation is dated'}</b></div><div class="b"></div><div class="f">AI review, Oct 2026. Judged against what the ITE currently expects; verify before relying on it.</div>`;
     n.querySelector('.b').textContent = q.ai.w;
     out.push(n);
   }
@@ -935,13 +951,13 @@ function renderQuestion() {
         const z = el('button', 'zone z' + c); z.type = 'button';
         z.setAttribute('aria-label', `${L}, ${q.c[L]}: ${name.toLowerCase()}`);
         z.append(el('span', 'zl', name));
-        z.onclick = () => { if (!quiz.ans[k]) commit(L, c); };
+        onTap(z, () => { if (!quiz.ans[k]) commit(L, c); });
         zones.append(z);
       });
       b.append(zones, lt, tx, sk);
     } else {
       b.append(lt, tx, sk);
-      b.addEventListener('click', () => onChoice(L));
+      onTap(b, () => onChoice(L));
     }
     box.appendChild(b);
   });
@@ -1879,7 +1895,7 @@ async function checkLatest() {
   checkingLatest = true;
   try {
     const r = await fetch('sw.js?t=' + Date.now(), { cache: 'no-store' });
-    // Written so build.py's version stamping (which rewrites "const VERSION = '8b44058801a5'") can't touch it.
+    // Written so build.py's version stamping (which rewrites "const VERSION = 'f935be246e98'") can't touch it.
     const m = r.ok && (await r.text()).match(/VERSION\s*=\s*'([0-9a-f]{12})'/);
     if (m && m[1] && m[1] !== APP_VERSION && !store.get('versions', []).includes(m[1])) await navigator.serviceWorker.register('sw.js?v=' + m[1]);
   } catch {}
