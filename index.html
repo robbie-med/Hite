@@ -13,8 +13,8 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>Hite · ITE Study</title>
-<script src="theme.js?v=41ed57949db7"></script>
-<link rel="stylesheet" href="styles.css?v=41ed57949db7">
+<script src="theme.js?v=b1d8499d8045"></script>
+<link rel="stylesheet" href="styles.css?v=b1d8499d8045">
 </head>
 <body>
 
@@ -123,6 +123,7 @@
             <button data-pool="missed">Missed</button>
             <button data-pool="flagged">Flagged</button>
             <button data-pool="weak">Weak areas</button>
+            <button data-pool="hard">Hardest</button>
           </div>
         </div>
         <div class="field">
@@ -198,6 +199,13 @@
         <select id="bYear"><option value="">All years</option></select>
         <select id="bCat"><option value="">All categories</option></select>
         <select id="bBP"><option value="">All blueprint areas</option></select>
+        <select id="bDiff">
+          <option value="">Any difficulty</option>
+          <option value="hard">Hard nationally</option>
+          <option value="medium">Medium</option>
+          <option value="easy">Easy (most get it right)</option>
+          <option value="none">Not rated yet</option>
+        </select>
         <select id="bStatus">
           <option value="">Any status</option>
           <option value="unseen">Unseen</option>
@@ -305,7 +313,7 @@
 <div id="toastHost"></div>
 <div id="updateHost"></div>
 
-<script src="exam-meta.js?v=41ed57949db7"></script>
-<script src="app.js?v=41ed57949db7"></script>
+<script src="exam-meta.js?v=b1d8499d8045"></script>
+<script src="app.js?v=b1d8499d8045"></script>
 </body>
 </html>

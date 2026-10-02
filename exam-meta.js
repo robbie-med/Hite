@@ -5,11 +5,14 @@
    - ABFM 2024 and 2025 In-Training Examination Score Results Handbooks
      (Section IV: items removed from scoring, Table 3 raw→scaled conversion,
      Table 4 questions by blueprint category; Table 2 national means by PGY;
-     Section V: SEM ≈ 38 scaled points, scores ≥440 "very reassuring").
+     Section V: SEM ≈ 38 scaled points, scores ≥440 "very reassuring";
+     Figure 2a Item Performance Report: each scored item's national difficulty
+     band, 0 = easiest to 1000 = hardest; 2025 so far).
    - ABFM 2026 Family Medicine Certification Examination Information Booklet
      (blueprint percentages; 4 sections × 75 questions in 95 minutes).
 
-   Add a year by pasting Tables 2–4 from that year's handbook. The app joins
+   Add a year by pasting Tables 2–4 from that year's handbook, plus its
+   Figure 2a difficulty bands. The app joins
    this to the question bank at load time by year + item number, so the
    encrypted bank never needs rebuilding for metadata changes.
    ============================================================ */
@@ -95,6 +98,30 @@ window.EXAM_META = {
         'Emergent and Urgent Care': [3, 5, 9, 11, 15, 21, 25, 28, 32, 35, 43, 47, 52, 56, 61, 68, 71, 75, 82, 89, 96, 100, 106, 111, 115, 122, 127, 132, 137, 142, 147, 151, 155, 160, 165, 171, 177, 185, 193, 200],
         'Preventive Care': [2, 16, 27, 34, 39, 50, 55, 67, 73, 77, 84, 90, 94, 104, 113, 116, 124, 131, 136, 143, 150, 153, 158, 164, 168, 175, 181, 189, 191, 198],
         'Foundations of Care': [1, 20, 41, 59, 86, 118, 139, 161, 179, 196],
+      },
+      // Item Performance Report (Figure 2a): national item difficulty, 0 = easiest … 1000 = hardest.
+      difficulty: {
+        1000: [6, 65, 69, 105, 111, 124, 139],
+        950: [89],
+        900: [61, 112],
+        850: [27, 60, 107, 170],
+        800: [167],
+        750: [40, 53, 66, 116, 131, 197],
+        700: [8, 29, 33, 68, 91, 127, 156, 173, 190],
+        650: [136, 192],
+        600: [43, 46, 70, 96, 144, 166],
+        550: [10, 13, 50, 101, 135, 164],
+        500: [15, 21, 24, 26, 47, 57, 81, 103, 122, 126, 168, 200],
+        450: [4, 11, 32, 72, 76, 82, 102, 117, 165, 176, 184, 193, 195, 198],
+        400: [30, 38, 62, 67, 74, 84, 86, 88, 97, 119, 133, 140, 186],
+        350: [5, 9, 16, 35, 48, 83, 104, 150, 151, 153, 175],
+        300: [12, 19, 37, 51, 54, 77, 94, 120, 137, 145, 159, 162, 177, 180, 185, 187, 196],
+        250: [18, 41, 63, 64, 80, 109, 183, 191, 194],
+        200: [1, 49, 87, 92, 95, 146, 154, 174],
+        150: [2, 34, 42, 52, 73, 110, 132, 147, 149, 158, 163, 199],
+        100: [39, 45, 79, 155, 157],
+        50: [14, 22, 31, 99, 143, 148, 160, 178],
+        0: [7, 17, 20, 28, 44, 56, 58, 71, 75, 78, 85, 90, 93, 98, 100, 106, 108, 113, 114, 115, 118, 121, 123, 125, 128, 130, 134, 138, 141, 152, 161, 169, 172, 179, 181, 182, 188, 189],
       },
     },
   },

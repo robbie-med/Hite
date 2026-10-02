@@ -6,7 +6,7 @@
    an app update: see migrate() for how older data is carried
    forward (and snapshotted first).
    ============================================================ */
-const APP_VERSION = '41ed57949db7';
+const APP_VERSION = 'b1d8499d8045';
 const $ = id => document.getElementById(id);
 const PBKDF2_ITER = 310000;
 const DAY = 86400000;
@@ -63,7 +63,7 @@ const store = {
 const DEFAULTS = {
   theme: 'auto', textSize: 1, confidence: true, autoAdvance: false, dailyGoal: 20, examDate: '',
   secPerQ: 76, backupEvery: 7, smartSize: 20, showTimer: true, revealInBrowse: false,
-  pgy: 0, includeDeleted: false, seed: '', icons: 'icons',
+  pgy: 0, includeDeleted: false, seed: '', icons: 'icons', skipEasy: 150,
 };
 let settings = Object.assign({}, DEFAULTS, store.get('settings', {}));
 function saveSettings() { store.set('settings', settings); applyAppearance(); }
@@ -92,7 +92,11 @@ function entry(k) { const st = stats(); return st[k] || (st[k] = { s: 0, c: 0, l
 const attempted = s => s && s.s > 0;
 /* Items ABFM removed from scoring (ambiguous / multiple correct answers) are kept
    out of fresh picks unless the user opts in; they stay reviewable. */
-const pickable = q => !q.x || settings.includeDeleted;
+/* ABFM national difficulty (0 easiest … 1000 hardest) where exam-meta.js has it. "Skip easy"
+   leaves those out of new-question picking; reviews of missed items and Full ITE keep them. */
+const skippedEasy = q => settings.skipEasy >= 0 && q.df !== null && q.df <= settings.skipEasy;
+const pickable = q => (!q.x || settings.includeDeleted) && !skippedEasy(q);
+const diffWord = df => df >= 600 ? 'Hard' : df <= 150 ? 'Easy' : 'Medium';
 const pickableKeys = () => QUESTIONS.filter(pickable).map(q => q.k);
 
 /* ---------------- migration (never destructive) ---------------- */
@@ -262,11 +266,16 @@ $('loginForm').addEventListener('submit', async e => {
 function enterApp() {
   BY_KEY = new Map(QUESTIONS.map(q => [q.k, q]));
   const rosterIdx = {};
-  for (const y in META.years) { const m = {}; for (const cat in META.years[y].roster) META.years[y].roster[cat].forEach(n => m[n] = cat); rosterIdx[y] = m; }
+  const diffIdx = {};
+  for (const y in META.years) {
+    const m = {}; for (const cat in META.years[y].roster) META.years[y].roster[cat].forEach(n => m[n] = cat); rosterIdx[y] = m;
+    const d = {}; for (const band in META.years[y].difficulty || {}) META.years[y].difficulty[band].forEach(n => d[n] = +band); diffIdx[y] = d;
+  }
   QUESTIONS.forEach(q => {
     const ym = yearMeta(q.y);
     q.b = ym && rosterIdx[q.y] ? rosterIdx[q.y][q.n] || null : null;   // official blueprint category
     q.x = ym && ym.deleted[q.n] ? ym.deleted[q.n] : null;             // removed from ABFM scoring (reason)
+    q.df = diffIdx[q.y] && q.n in diffIdx[q.y] ? diffIdx[q.y][q.n] : null;   // national difficulty band
   });
   YEARS = [...new Set(QUESTIONS.map(q => q.y))].sort();
   DOMAINS = [...new Set(QUESTIONS.map(q => q.d))].sort();
@@ -509,6 +518,7 @@ function builderKeys(cfg = builderCfg) {
         case 'missed': return attempted(s) && s.lc === 0;
         case 'flagged': return s && s.fl;
         case 'weak': return weak.size ? weak.has(q.d) : true;
+        case 'hard': return q.df !== null && q.df >= 500;
         default: return true;
       }
     }).map(q => q.k);
@@ -524,7 +534,7 @@ function builderLabel(cfg) {
   parts.push(cfg.cats.length ? (cfg.cats.length > 2 ? `${cfg.cats.length} categories` : cfg.cats.join(' + ')) : 'All categories');
   if (cfg.bp && cfg.bp.length) parts.push(cfg.bp.map(bpShort).join(' + '));
   parts.push(cfg.years.length ? cfg.years.join('/') : 'all years');
-  if (cfg.pool !== 'all') parts.push({ unseen: 'unseen', due: 'due', missed: 'missed', flagged: 'flagged', weak: 'weak areas' }[cfg.pool]);
+  if (cfg.pool !== 'all') parts.push({ unseen: 'unseen', due: 'due', missed: 'missed', flagged: 'flagged', weak: 'weak areas', hard: 'hardest' }[cfg.pool]);
   return parts.join(' · ');
 }
 $('startCustom').addEventListener('click', () => {
@@ -881,6 +891,7 @@ function paintAnswer(a) {
   const metaBits = [];
   if (a.conf >= 0) metaBits.push(CONF_LABEL[a.conf]);
   if (a.sec) metaBits.push(a.sec + 's');
+  if (q.df !== null) metaBits.push(`${diffWord(q.df)} nationally (${q.df}/1000)`);
   if (metaBits.length) v.append(el('span', 'meta', metaBits.join(' · ')));
   card.append(v, el('div', 'body', q.e || 'No explanation available for this item.'));
   if (q.x) card.append(el('div', 'next-due', `ABFM removed this item from ${q.y} scoring for a ${q.x} reason${q.x === 'content' ? ' (ambiguous or more than one defensible answer)' : ''}. Weigh the key accordingly.`));
@@ -1158,7 +1169,8 @@ function buildBrowseUI() {
   let t = null;
   $('searchInput').addEventListener('input', () => { clearTimeout(t); t = setTimeout(renderBrowse, 120); $('searchClear').classList.toggle('hidden', !$('searchInput').value); });
   $('searchClear').addEventListener('click', () => { $('searchInput').value = ''; $('searchClear').classList.add('hidden'); renderBrowse(); });
-  [by, bc, bb, $('bStatus')].forEach(s => s.addEventListener('change', () => { s.classList.toggle('set', !!s.value); renderBrowse(); }));
+  if (!QUESTIONS.some(q => q.df !== null)) $('bDiff').classList.add('hidden');
+  [by, bc, bb, $('bStatus'), $('bDiff')].forEach(s => s.addEventListener('change', () => { s.classList.toggle('set', !!s.value); renderBrowse(); }));
   $('browseMore').addEventListener('click', () => { browseShown += 50; drawBrowseList(); });
   $('browseQuiz').addEventListener('click', () => {
     const keys = shuffle(browseKeys).slice(0, 100);
@@ -1168,12 +1180,16 @@ function buildBrowseUI() {
 }
 function renderBrowse() {
   const qtxt = $('searchInput').value.trim().toLowerCase(), toks = qtxt.split(/\s+/).filter(Boolean);
-  const y = $('bYear').value, d = $('bCat').value, bp = $('bBP').value, status = $('bStatus').value, st = stats(), t = now();
+  const y = $('bYear').value, d = $('bCat').value, bp = $('bBP').value, status = $('bStatus').value, df = $('bDiff').value, st = stats(), t = now();
   browseKeys = [];
   for (const q of QUESTIONS) {
     if (y && String(q.y) !== y) continue;
     if (d && q.d !== d) continue;
     if (bp && q.b !== bp) continue;
+    if (df === 'hard' && !(q.df >= 600)) continue;
+    if (df === 'medium' && !(q.df > 150 && q.df < 600)) continue;
+    if (df === 'easy' && !(q.df !== null && q.df <= 150)) continue;
+    if (df === 'none' && q.df !== null) continue;
     const s = st[q.k];
     if (status === 'unseen' && attempted(s)) continue;
     if (status === 'correct' && !(attempted(s) && s.lc)) continue;
@@ -1209,6 +1225,7 @@ function drawBrowseList(toks) {
     if (s && s.fl) tag('f', 'flag', 'flagged');
     if (s && s.nt) tag('', 'note', 'note');
     if (hasFigures(q)) tag('', 'image', 'image');
+    if (q.df !== null) mt.append(el('span', '', `${diffWord(q.df)} · ${q.df}`));
     if (attempted(s)) mt.append(el('span', '', `${s.c}/${s.s} correct`));
     const inner = el('div'); inner.style.flex = '1'; inner.style.minWidth = '0'; inner.append(body, mt);
     b.append(status, inner);
@@ -1444,6 +1461,7 @@ function renderSettings() {
     settingRow('Smart session size', 'Questions in a Study-now session.', selectCtl('smartSize', [[10, '10'], [15, '15'], [20, '20'], [30, '30'], [40, '40']])),
     settingRow('Exam pace', 'Seconds per question in timed blocks. The FMCE allows 95 min per 75 questions (76 s).', selectCtl('secPerQ', [[60, '60 s'], [72, '72 s'], [76, '76 s (FMCE)'], [90, '90 s'], [120, '120 s']])),
     settingRow('Training year', 'Highlights your PGY in national comparisons.', selectCtl('pgy', [[0, 'Not set'], [1, 'PGY-1'], [2, 'PGY-2'], [3, 'PGY-3']])),
+    settingRow('Skip questions most residents get right', skipEasyDesc(), selectCtl('skipEasy', [[-1, 'Off'], [0, `Easiest (${easyCount(0)})`], [150, `Easy (${easyCount(150)})`], [300, `Easier half (${easyCount(300)})`]], () => { renderSettings(); })),
     settingRow('Include items ABFM removed from scoring', 'Off keeps the few ambiguous items (deleted for content reasons) out of new sessions. They stay in Browse.', switchCtl('includeDeleted')),
     settingRow('Show countdown in timed blocks', 'Off shows answered count instead of the clock.', switchCtl('showTimer')),
     settingRow('Backup reminder', 'Nudge after sessions when a backup is overdue.', selectCtl('backupEvery', [[0, 'Off'], [1, 'Daily'], [3, 'Every 3 days'], [7, 'Weekly'], [14, 'Every 2 weeks']])),
@@ -1512,6 +1530,11 @@ function swatchPicker() {
   input.addEventListener('change', () => choose(input.value.toLowerCase()));
   wrap.append(custom);
   return wrap;
+}
+const easyCount = t => QUESTIONS.filter(q => q.df !== null && q.df <= t).length;
+function skipEasyDesc() {
+  const rated = QUESTIONS.filter(q => q.df !== null), years = [...new Set(rated.map(q => q.y))].join(', ');
+  return `Uses ABFM's national difficulty for each question (${rated.length} rated so far: ${years || 'none'}). Skipped questions stay in Browse, Full ITE and your missed-question reviews.`;
 }
 function renderAbout() {
   $('aboutCard').innerHTML = `
@@ -1679,7 +1702,7 @@ async function checkLatest() {
   checkingLatest = true;
   try {
     const r = await fetch('sw.js?t=' + Date.now(), { cache: 'no-store' });
-    // Written so build.py's version stamping (which rewrites "const VERSION = '41ed57949db7'") can't touch it.
+    // Written so build.py's version stamping (which rewrites "const VERSION = 'b1d8499d8045'") can't touch it.
     const m = r.ok && (await r.text()).match(/VERSION\s*=\s*'([0-9a-f]{12})'/);
     if (m && m[1] && m[1] !== APP_VERSION && !store.get('versions', []).includes(m[1])) await navigator.serviceWorker.register('sw.js?v=' + m[1]);
   } catch {}
