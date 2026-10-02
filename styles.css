@@ -9,7 +9,7 @@
   font-style: normal;
   font-weight: 100 700;
   font-display: block;
-  src: url(symbols.woff2?v=fe32def84bf4) format('woff2');
+  src: url(symbols.woff2?v=8c63f2761cde) format('woff2');
 }
 :root {
   --fs: 1;
@@ -407,6 +407,35 @@ details.builder[open] > summary .chev { transform: rotate(180deg); }
 .q-text { font-size: 1.0625rem; line-height: 1.6; margin-bottom: 20px; }
 .q-text p { white-space: pre-line; }
 .q-text p + p { margin-top: 10px; }
+/* clinical figures */
+.q-figs { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 4px; }
+.q-fig {
+  flex: 1 1 260px; min-width: 0; border-radius: var(--shape-lg); overflow: hidden; background: var(--md-sc-high);
+  display: grid; place-items: center; cursor: zoom-in; position: relative;
+}
+.q-fig img { display: block; width: 100%; height: auto; max-height: 56vh; object-fit: contain; }
+.q-fig::after {
+  content: 'zoom_in'; font-family: 'Material Symbols Rounded'; font-size: 1.25rem; line-height: 1; -webkit-font-feature-settings: 'liga'; font-feature-settings: 'liga';
+  position: absolute; right: 8px; bottom: 8px; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--md-inverse-surface) 70%, transparent); color: var(--md-inverse-on-surface);
+}
+.q-fig-ph {
+  flex: 1 1 100%; min-height: 160px; border-radius: var(--shape-lg); background: var(--md-sc-high); color: var(--md-on-surface-variant);
+  display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 0.875rem; padding: 16px; text-align: center;
+}
+.spin { width: 20px; height: 20px; border-radius: 50%; border: 3px solid var(--md-secondary-container); border-top-color: var(--md-primary); animation: spin 0.9s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.lightbox {
+  position: fixed; inset: 0; z-index: 90; background: rgba(0, 0, 0, 0.92); display: grid; place-items: center;
+  padding: calc(56px + env(safe-area-inset-top)) 8px calc(40px + env(safe-area-inset-bottom)); animation: fadein 0.2s;
+}
+.lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; touch-action: pinch-zoom; border-radius: var(--shape-xs); }
+.lightbox .icon-btn { position: absolute; color: #fff; background: rgba(255, 255, 255, 0.12); width: 48px; height: 48px; font-size: 1.5rem; }
+.lightbox .lb-close { top: calc(8px + env(safe-area-inset-top)); right: 8px; }
+.lightbox .lb-nav { top: 50%; margin-top: -24px; }
+.lightbox .lb-nav.prev { left: 8px; } .lightbox .lb-nav.next { right: 8px; }
+.lightbox .lb-count { position: absolute; bottom: calc(12px + env(safe-area-inset-bottom)); left: 0; right: 0; text-align: center; color: #fff; font-size: 0.875rem; opacity: 0.8; }
+.review-detail .q-fig img { max-height: 40vh; }
 .labs { margin: 12px 0; border-radius: var(--shape-md); overflow: hidden; font-size: 0.9375rem; background: var(--md-sc-low); }
 .labs .lr { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 12px; padding: 8px 16px; }
 .labs .lr + .lr { border-top: 1px solid var(--md-outline-variant); }

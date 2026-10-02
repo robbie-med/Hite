@@ -10,7 +10,7 @@ Usage:
     python3 build.py --password 'YourSecretPassword'   # rebuild data.enc + stamp version
     python3 build.py --assets-only                     # app code changed only: re-stamp version
 
-The version hash covers data.enc, index.html, app.js, styles.css and exam-meta.js; it is
+The version hash covers data.enc, images.enc, index.html, app.js, styles.css and exam-meta.js; it is
 stamped into sw.js (cache name), app.js (About screen) and the ?v= query on
 the asset tags in index.html so every client picks up the new files.
 
@@ -55,13 +55,18 @@ def clean_text(s: str) -> str:
     return "\n".join(out)
 
 
-def load_questions() -> list:
+def load_questions() -> tuple:
+    """(bank, images): the slim question list for data.enc and {key: [data URL, …]}
+    for images.enc. Items with figures carry "im" (how many) so the app can hold
+    a placeholder until images.enc has loaded."""
     with open(ROOT / "questions.json") as f:
         raw = json.load(f)
-    slim = []
+    slim, images = [], {}
     for q in raw:
         if not q.get("correctAnswer"):
             continue
+        if q.get("images"):
+            images[f"{q['year']}-{q['id']}"] = q["images"]
         slim.append({
             "k": f"{q['year']}-{q['id']}",
             "y": q["year"],
@@ -71,8 +76,9 @@ def load_questions() -> list:
             "a": q["correctAnswer"],
             "e": clean_text(q.get("explanation", "")),
             "d": q.get("domain", "General Medicine"),
+            **({"im": len(q["images"])} if q.get("images") else {}),
         })
-    return slim
+    return slim, images
 
 
 def get_salt() -> bytes:
@@ -141,6 +147,8 @@ def stamp_version() -> str:
     """Hash the deployable inputs and write the hash into every file that carries it."""
     h = hashlib.sha256()
     h.update((DOCS / "data.enc").read_bytes())
+    if (DOCS / "images.enc").exists():
+        h.update((DOCS / "images.enc").read_bytes())
     h.update((DOCS / "symbols.woff2").read_bytes())
     for name in ("index.html", "app.js", "styles.css", "exam-meta.js", "theme.js"):
         h.update(_normalized(DOCS / name))
@@ -165,7 +173,7 @@ def main():
     if not args.assets_only:
         if not args.password:
             ap.error("--password is required unless --assets-only is given")
-        questions = load_questions()
+        questions, images = load_questions()
         domains = {}
         for q in questions:
             domains[q["d"]] = domains.get(q["d"], 0) + 1
@@ -178,6 +186,12 @@ def main():
         print(f"plaintext : {len(payload):,} bytes")
         print(f"gzipped   : {len(gz):,} bytes")
         print(f"encrypted : {len(enc):,} bytes -> data.enc")
+        # Figures go in their own file (same password and salt) so unlocking stays fast;
+        # the app fetches it in the background after login.
+        img_payload = json.dumps(images, separators=(",", ":")).encode()
+        img_enc = encrypt(gzip.compress(img_payload, 9), args.password, get_salt())
+        (DOCS / "images.enc").write_bytes(img_enc)
+        print(f"images    : {sum(len(v) for v in images.values())} for {len(images)} items · {len(img_enc):,} bytes -> images.enc")
         make_icons()
     elif args.icons:
         make_icons()

@@ -6,7 +6,7 @@
    an app update: see migrate() for how older data is carried
    forward (and snapshotted first).
    ============================================================ */
-const APP_VERSION = 'fe32def84bf4';
+const APP_VERSION = '8c63f2761cde';
 const $ = id => document.getElementById(id);
 const PBKDF2_ITER = 310000;
 const DAY = 86400000;
@@ -30,7 +30,7 @@ const ICONS = {
   warn: ['warning', '⚠'], note: ['edit_note', '📝'], check: ['check', '✓'], cross: ['close', '✗'],
   unseen: ['radio_button_unchecked', '○'], blank: ['remove', '–'], strike: ['block', '⊘'], dismiss: ['close', '✕'],
   guess: ['casino', '🎲'], fair: ['thumb_up', '🤔'], certain: ['verified', '💪'], event: ['event', '📅'],
-  weak: ['trending_down', '📉'], goal: ['check', '✓'],
+  weak: ['trending_down', '📉'], goal: ['check', '✓'], image: ['image', '🖼️'],
 };
 const CONF_IC = ['guess', 'fair', 'certain'];
 const useEmoji = () => settings.icons === 'emoji';
@@ -171,6 +171,8 @@ let YEARS = [];
 let SEARCH_INDEX = [];
 let dataBufPromise = null;
 let quiz = null;             // active session state
+let bankKey = null;          // AES key for data.enc, reused for images.enc
+let imagesState = 'idle';    // idle → loading → ready | failed
 
 /* ---------------- crypto + boot ---------------- */
 async function fetchDataBuf() {
@@ -194,11 +196,26 @@ async function decryptBank(buf, key) {
 async function tryUnlock(key, remember) {
   const buf = await fetchDataBuf();
   QUESTIONS = await decryptBank(buf, key);   // throws on wrong password
+  bankKey = key;
   if (remember) {
     const raw = await crypto.subtle.exportKey('raw', key);
     store.set('key', btoa(String.fromCharCode(...new Uint8Array(raw))));
   }
   enterApp();
+  loadImages();
+}
+/* Clinical figures live in images.enc (same password and salt) so unlocking only
+   waits for the text bank. Placeholders render until this resolves. */
+async function loadImages() {
+  if (!QUESTIONS.some(q => q.im) || imagesState === 'loading' || imagesState === 'ready') return;
+  imagesState = 'loading';
+  try {
+    const r = await fetch('images.enc'); if (!r.ok) throw new Error('fetch failed');
+    const map = await decryptBank(await r.arrayBuffer(), bankKey);
+    for (const k in map) { const q = BY_KEY.get(k); if (q) q.i = map[k]; }
+    imagesState = 'ready';
+  } catch (e) { console.error(e); imagesState = 'failed'; }
+  document.querySelectorAll('.q-figs[data-k]').forEach(f => f.replaceWith(figures(BY_KEY.get(f.dataset.k))));
 }
 async function boot() {
   migrate();
@@ -703,6 +720,48 @@ function renderStem(container, text) {
     } else { labs = null; if (line.trim()) container.append(el('p', '', line)); }
   });
 }
+function figures(q) {
+  const box = el('div', 'q-figs'); box.dataset.k = q.k;
+  if (q.i && q.i.length) {
+    q.i.forEach((src, j) => {
+      const b = el('button', 'q-fig'); b.setAttribute('aria-label', `Enlarge figure ${j + 1} of ${q.i.length}`);
+      const img = el('img'); img.src = src; img.alt = `Figure ${j + 1} for ${q.y} item ${q.n}`; img.decoding = 'async';
+      b.append(img); b.onclick = () => lightbox(q, j);
+      box.append(b);
+    });
+  } else {
+    const ph = el('div', 'q-fig-ph');
+    ph.innerHTML = imagesState === 'failed'
+      ? `${ic('warn')}<span>Image couldn't load. <button class="link-btn" type="button">Try again</button></span>`
+      : `<span class="spin" aria-hidden="true"></span><span>Loading image…</span>`;
+    ph.querySelector('button')?.addEventListener('click', () => { imagesState = 'idle'; loadImages(); });
+    box.append(ph);
+  }
+  return box;
+}
+const hasFigures = q => !!(q.im || (q.i && q.i.length));
+function lightbox(q, j) {
+  const lb = el('div', 'lightbox'); lb.setAttribute('role', 'dialog'); lb.setAttribute('aria-modal', 'true'); lb.setAttribute('aria-label', 'Figure');
+  const img = el('img'); img.alt = `Figure for ${q.y} item ${q.n}`;
+  const close = el('button', 'icon-btn lb-close'); close.innerHTML = '<span class="ms" aria-hidden="true">close</span>'; close.setAttribute('aria-label', 'Close');
+  const count = el('div', 'lb-count');
+  const show = i => { j = (i + q.i.length) % q.i.length; img.src = q.i[j]; count.textContent = q.i.length > 1 ? `${j + 1} / ${q.i.length}` : ''; };
+  const done = () => { lb.remove(); document.removeEventListener('keydown', onKey, true); };
+  const onKey = e => {
+    if (e.key === 'Escape') done(); else if (e.key === 'ArrowRight') show(j + 1); else if (e.key === 'ArrowLeft') show(j - 1); else return;
+    e.preventDefault(); e.stopPropagation();
+  };
+  lb.append(img, close, count);
+  if (q.i.length > 1) {
+    [['chevron_left', -1, 'Previous'], ['chevron_right', 1, 'Next']].forEach(([n, d, l]) => {
+      const b = el('button', 'icon-btn lb-nav ' + (d < 0 ? 'prev' : 'next')); b.innerHTML = `<span class="ms" aria-hidden="true">${n}</span>`; b.setAttribute('aria-label', l + ' figure');
+      b.onclick = e => { e.stopPropagation(); show(j + d); }; lb.append(b);
+    });
+  }
+  lb.onclick = e => { if (e.target === lb || e.target === close || close.contains(e.target)) done(); };
+  document.addEventListener('keydown', onKey, true);
+  show(j); document.body.append(lb); close.focus();
+}
 function renderQuestion() {
   stopTimer();
   const q = curQ(), k = q.k, s = stats()[k], a = quiz.ans[k];
@@ -721,6 +780,7 @@ function renderQuestion() {
   flag.onclick = () => { toggleFlag(k); flag.classList.toggle('on', isFlagged(k)); };
   tools.append(flag); meta.append(tools);
   renderStem($('qText'), q.q);
+  if (hasFigures(q)) $('qText').append(figures(q));
   const box = $('choices'); box.innerHTML = '';
   const struck = quiz.strikes[k] || [];
   Object.keys(q.c).sort().forEach(L => {
@@ -1058,7 +1118,7 @@ function reviewItem(a) {
 /* Full question card used by review lists and the browser. */
 function questionDetail(q, { pick = null, revealed = false } = {}) {
   const wrap = el('div');
-  const stem = el('div', 'q-text'); renderStem(stem, q.q); wrap.append(stem);
+  const stem = el('div', 'q-text'); renderStem(stem, q.q); if (hasFigures(q)) stem.append(figures(q)); wrap.append(stem);
   const ch = el('div', 'choices');
   const paint = () => {
     ch.innerHTML = '';
@@ -1148,6 +1208,7 @@ function drawBrowseList(toks) {
     if (q.x) tag('f', 'warn', 'removed from scoring');
     if (s && s.fl) tag('f', 'flag', 'flagged');
     if (s && s.nt) tag('', 'note', 'note');
+    if (hasFigures(q)) tag('', 'image', 'image');
     if (attempted(s)) mt.append(el('span', '', `${s.c}/${s.s} correct`));
     const inner = el('div'); inner.style.flex = '1'; inner.style.minWidth = '0'; inner.append(body, mt);
     b.append(status, inner);

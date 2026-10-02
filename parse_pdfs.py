@@ -9,6 +9,7 @@ If a PDF is missing, a .txt with the same name (text pasted from the PDF) is
 used instead.  None of these inputs may be committed (see .gitignore).
 """
 import pymupdf
+import base64
 import json
 import re
 import sys
@@ -334,6 +335,68 @@ def classify_domain(question_text):
         return max(scores, key=scores.get)
     return "General Medicine"
 
+IMG_MAX_SIDE = 1200     # px; enough to read an ECG tracing, small enough to ship
+IMG_QUALITY = 78
+
+
+def _to_jpeg(doc, xref):
+    """Embedded image → downscaled JPEG bytes (alpha flattened onto white)."""
+    import io
+    from PIL import Image
+    pix = pymupdf.Pixmap(doc, xref)
+    if pix.alpha or pix.n - pix.alpha not in (1, 3):
+        pix = pymupdf.Pixmap(pymupdf.csRGB, pix)
+    img = Image.open(io.BytesIO(pix.tobytes("png")))
+    if img.mode not in ("RGB", "L"):
+        bg = Image.new("RGB", img.size, "white")
+        bg.paste(img, mask=img.getchannel("A") if "A" in img.getbands() else None)
+        img = bg
+    img.thumbnail((IMG_MAX_SIDE, IMG_MAX_SIDE), Image.LANCZOS)
+    out = io.BytesIO()
+    img.save(out, "JPEG", quality=IMG_QUALITY, optimize=True, progressive=True)
+    return out.getvalue()
+
+
+def extract_images(pdf_path, max_items=200, window=6):
+    """Return {item number: [jpeg bytes, …]} for the clinical images in a mult-choice PDF.
+
+    2022–2024 put each item's images on their own page headed "Item #N".
+    2025 puts them inline, so an image belongs to the last item that starts
+    above it on the page (or the item still running from the previous page).
+    Item starts use the same plausibility window as split_questions().
+    The cover page logo is skipped."""
+    doc = pymupdf.open(pdf_path)
+    out, current = {}, 0
+    for pno, page in enumerate(doc):
+        starts = []   # (y, n) item starts on this page, in reading order
+        for b in page.get_text("dict")["blocks"]:
+            for line in b.get("lines", []):
+                text = "".join(s["text"] for s in line["spans"])
+                m = re.match(r"\s*(\d{1,3})\.(\s|$)", text)
+                if m:
+                    n = int(m.group(1))
+                    if current < n <= min(max_items, current + window):
+                        starts.append((line["bbox"][1], n)); current = n
+        header = re.search(r"^\s*Item\s*#\s*(\d+)\s*$", page.get_text(), re.M)
+        running = starts[0][1] - 1 if starts else current   # item continuing onto this page
+        if pno == 0:
+            continue
+        placed = []
+        for xref, *_ in page.get_images(full=True):
+            for r in page.get_image_rects(xref) or []:
+                if header:
+                    n = int(header.group(1))
+                else:
+                    above = [s for y, s in starts if y <= r.y0 + 2]
+                    n = above[-1] if above else running
+                if 1 <= n <= max_items:
+                    placed.append((r.y0, r.x0, n, xref))
+        for _, _, n, xref in sorted(placed):
+            out.setdefault(n, []).append(_to_jpeg(doc, xref))
+    doc.close()
+    return out
+
+
 def read_source(path_pdf, path_txt):
     """Return text from the PDF if present, otherwise from a .txt with the same
     content (e.g. pasted from the PDF), otherwise None."""
@@ -375,8 +438,17 @@ def main():
             critiques = {}
             print(f"  No critique PDF/txt for {year}")
 
+        pdf = ite_dir / f"{year}ITEMultChoice.pdf"
+        images = extract_images(str(pdf)) if pdf.exists() else {}
+        if images:
+            kb = sum(len(b) for v in images.values() for b in v) // 1024
+            print(f"  Found {sum(len(v) for v in images.values())} images for items {sorted(images)} ({kb} KB)")
         unanswered = []
         for q in questions:
+            if q["id"] in images:
+                q["images"] = ["data:image/jpeg;base64," + base64.b64encode(b).decode() for b in images[q["id"]]]
+            elif re.search(r"\(shown (below|above)\)|\bshown below\b", q["question"]):
+                print(f"  WARNING: item {q['id']} refers to an image but none was found", file=sys.stderr)
             crit = critiques.get(q["id"], {})
             q["year"] = int(year)
             q["correctAnswer"] = crit.get("answer", "")
