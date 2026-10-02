@@ -60,4 +60,7 @@ Installed apps update on next launch: the service worker fetches
 `<file>?v=<version>` to bypass Cloudflare's cache and activates immediately.
 Updates never touch progress (`migrate()` in `app.js` reads old data forward).
 
-Not affiliated with the ABFM.
+## License
+
+Code: [MIT](LICENSE) © robbie-med, credit required in copies. ABFM questions, keys,
+critiques and images are © ABFM and are not covered. Not affiliated with the ABFM.

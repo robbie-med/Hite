@@ -6,7 +6,7 @@
    an app update: see migrate() for how older data is carried
    forward (and snapshotted first).
    ============================================================ */
-const APP_VERSION = 'dc2fd4a284b7';
+const APP_VERSION = '8b44058801a5';
 const $ = id => document.getElementById(id);
 const PBKDF2_ITER = 310000;
 const DAY = 86400000;
@@ -21,7 +21,7 @@ const fmtDur = ms => { const s = Math.round(ms / 1000); if (s < 60) return s + '
 const fmtClock = ms => { const s = Math.max(0, Math.floor(ms / 1000)); const m = Math.floor(s / 60); return (m < 10 ? '0' : '') + m + ':' + (s % 60 < 10 ? '0' : '') + (s % 60); };
 const relDays = t => { const d = Math.round((t - now()) / DAY); if (d <= 0) return 'now'; if (d === 1) return 'tomorrow'; if (d < 14) return `in ${d} days`; if (d < 60) return `in ${Math.round(d / 7)} weeks`; return `in ${Math.round(d / 30)} months`; };
 const agoDays = t => { const d = Math.floor((now() - t) / DAY); return d === 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`; };
-const CONF_LABEL = ['Guess', 'Fairly sure', 'Certain'];
+const CONF_LABEL = ['Guess', 'Shaky', 'Confident'];
 /* Icons: Material Symbols (default) or the emoji/glyph set, per the "Icons" setting.
    name → [Material Symbols ligature, emoji/glyph fallback] */
 const ICONS = {
@@ -64,9 +64,18 @@ const store = {
 const DEFAULTS = {
   theme: 'auto', textSize: 1, confidence: true, autoAdvance: false, dailyGoal: 20, examDate: '',
   secPerQ: 76, backupEvery: 7, smartSize: 20, showTimer: true, revealInBrowse: false,
-  pgy: 0, includeDeleted: false, seed: '', icons: 'icons', skipEasy: -1, showOutdatedOld: false, hideFlaggedYears: [],
+  pgy: 0, includeDeleted: false, seed: '', icons: 'icons', skipEasy: 150, hideFlaggedYears: null,   // null = default by year
+  confStyle: 'zones',   // 'zones': tap the guess/shaky/confident third of a choice · 'buttons': choose, then rate · 'off'
 };
 let settings = Object.assign({}, DEFAULTS, store.get('settings', {}));
+// Confidence style replaced the on/off "confidence" switch; keep "off" for anyone who had turned it off.
+if (!settings.confStyle || !('confStyle' in (store.get('settings', {}) || {}))) settings.confStyle = settings.confidence === false ? 'off' : 'zones';
+settings.confidence = settings.confStyle !== 'off';
+// "Skip easy" briefly shipped off by default; turn it on unless the user has chosen for themselves.
+if (!settings.skipEasySet) settings.skipEasy = 150;
+// Per-year hiding of AI-flagged items: default 2022 and earlier until the user picks for themselves.
+if (!settings.hideFlaggedSet) settings.hideFlaggedYears = null;
+delete settings.showOutdatedOld;
 function saveSettings() { store.set('settings', settings); applyAppearance(); }
 function applyAppearance() {
   const root = document.documentElement;
@@ -96,10 +105,11 @@ const attempted = s => s && s.s > 0;
 /* ABFM national difficulty (0 easiest … 1000 hardest) where exam-meta.js has it. "Skip easy"
    leaves those out of new-question picking; reviews of missed items and Full ITE keep them. */
 const skippedEasy = q => settings.skipEasy >= 0 && q.df !== null && q.df <= settings.skipEasy;
-/* AI currency review: "outdated" items from older forms (before 2022) are hidden unless the
-   user opts in; 2022+ items are only labelled, with an optional per-year hide (off by default). */
-const OLDER_BEFORE = 2022;
-const hiddenAi = q => !!(q.ai && q.ai.s === 'outdated') && (q.y < OLDER_BEFORE ? !settings.showOutdatedOld : (settings.hideFlaggedYears || []).includes(q.y));
+/* AI currency review: items flagged "outdated" are hidden for the years in hideFlaggedYears
+   (default: 2022 and earlier); later years show them with the label and reason. */
+const OLDER_BEFORE = 2022;          // forms before this ship only their hardest items
+const HIDE_FLAGGED_THROUGH = 2022;  // default: hide flagged items from this year and earlier
+const hiddenAi = q => !!(q.ai && q.ai.s === 'outdated') && (settings.hideFlaggedYears || []).includes(q.y);
 const pickable = q => (!q.x || settings.includeDeleted) && !skippedEasy(q) && !hiddenAi(q);
 const diffWord = df => df >= 600 ? 'Hard' : df <= 150 ? 'Easy' : 'Medium';
 const pickableKeys = () => QUESTIONS.filter(pickable).map(q => q.k);
@@ -281,6 +291,7 @@ function enterApp() {
     q.df = diffIdx[q.y] && q.n in diffIdx[q.y] ? diffIdx[q.y][q.n] : null;   // national difficulty band
   });
   YEARS = [...new Set(QUESTIONS.map(q => q.y))].sort();
+  if (!Array.isArray(settings.hideFlaggedYears)) settings.hideFlaggedYears = YEARS.filter(y => y <= HIDE_FLAGGED_THROUGH);
   DOMAINS = [...new Set(QUESTIONS.map(q => q.d))].sort();
   SEARCH_INDEX = QUESTIONS.map(q => ({ k: q.k, t: (q.q + ' ' + Object.values(q.c).join(' ') + ' ' + q.e).toLowerCase() }));
   $('view-login').classList.remove('on');
@@ -311,7 +322,10 @@ function introSlides() {
   return [
     { ic: 'full', t: 'Welcome to Hite', b: `<p>${QUESTIONS.length} real ABFM In-Training Exam questions (${years}) with the official critiques. Your answers stay on this device.</p><p class="muted">Swipe or tap Next. This takes 30 seconds.</p>` },
     { ic: 'study', t: 'Pick how to study', b: `<ul class="ticks"><li><b>Study now</b> picks for you: reviews that are due, your weak areas, then new questions</li><li><b>Quick 5 / 10</b> for spare minutes, <b>Timed 40</b> for exam pace</li><li><b>By difficulty</b> blocks from ABFM's national ratings</li><li><b>Full ITE</b> takes a whole exam and gives a real scaled score</li></ul>` },
-    { ic: 'missed', t: 'It remembers for you', b: `<p>Before each answer you can rate how sure you are. Misses, guesses and confident mistakes come back at the right time, so you review what you actually need.</p><p class="muted">Prefer to skip questions most residents get right? Turn it on in More.</p>` },
+    { ic: 'missed', t: 'One tap: answer + how sure', b: `<p>Each answer is split into three. Tap the part that matches how sure you are:</p>
+      <div class="intro-demo" aria-hidden="true"><div class="choice zoned demo"><div class="zones"><span class="zone z0"><span class="zl">Guess</span></span><span class="zone z1"><span class="zl">Shaky</span></span><span class="zone z2"><span class="zl">Confident</span></span></div><span class="letter">B</span><span class="txt">Start an SGLT2 inhibitor</span></div></div>
+      <p>Guesses and confident misses come back sooner, so you review what you actually need. Prefer choosing first and rating after? Switch to <b>Buttons</b> in More.</p>
+      <p class="muted">Questions most residents get right (ABFM national data) are skipped by default. Change it in More.</p>` },
     { ic: 'install', t: isStandalone() ? 'You\'re all set as an app' : 'Make it an app', b: install },
     { ic: 'backup', t: 'Back up now and then', b: `<p>Progress lives only on this device. A new phone, a cleared browser or a reinstall would lose it.</p><p><b>More → Back up now</b> saves a small file you can keep in Files, iCloud or email. Hite will remind you.</p>` },
     { ic: 'palette', t: 'Make it yours', b: `<p>Pick a colour. You can change it, the theme, icons and text size anytime in <b>More → Appearance</b>.</p><div id="introSwatches"></div>` },
@@ -905,21 +919,36 @@ function renderQuestion() {
   if (hasFigures(q)) $('qText').append(figures(q));
   const box = $('choices'); box.innerHTML = '';
   const struck = quiz.strikes[k] || [];
+  const zoned = quiz.mode === 'study' && settings.confStyle === 'zones' && !a;
+  box.classList.toggle('zoned', zoned);
   Object.keys(q.c).sort().forEach(L => {
-    const b = el('button', 'choice'); b.dataset.letter = L;
+    // 3-zone mode: one tap answers and rates confidence (left guess · middle shaky · right confident)
+    const b = el(zoned ? 'div' : 'button', 'choice' + (zoned ? ' zoned' : '')); b.dataset.letter = L;
     if (struck.includes(L)) b.classList.add('struck');
     if (a && a.pick === L && quiz.mode === 'exam') b.classList.add('sel');
     const lt = el('span', 'letter', L), tx = el('span', 'txt', q.c[L]);
     const sk = el('button', 'strike'); sk.innerHTML = ic('strike'); sk.setAttribute('aria-label', 'Eliminate this option'); sk.title = 'Eliminate';
     sk.onclick = e => { e.stopPropagation(); toggleStrike(L); };
-    b.append(lt, tx, sk);
-    b.addEventListener('click', () => onChoice(L));
+    if (zoned) {
+      const zones = el('div', 'zones');
+      CONF_LABEL.forEach((name, c) => {
+        const z = el('button', 'zone z' + c); z.type = 'button';
+        z.setAttribute('aria-label', `${L}, ${q.c[L]}: ${name.toLowerCase()}`);
+        z.append(el('span', 'zl', name));
+        z.onclick = () => { if (!quiz.ans[k]) commit(L, c); };
+        zones.append(z);
+      });
+      b.append(zones, lt, tx, sk);
+    } else {
+      b.append(lt, tx, sk);
+      b.addEventListener('click', () => onChoice(L));
+    }
     box.appendChild(b);
   });
   $('confBox').innerHTML = ''; $('explBox').innerHTML = '';
   renderActions();
   if (quiz.mode === 'study' && a) paintAnswer(a);   // revisiting an answered question after resume
-  $('kbdHint').textContent = quiz.mode === 'exam' ? 'A–E select · ←/→ move · F flag · Enter next' : 'A–E answer · 1/2/3 confidence · Enter next · F flag · shift+letter eliminate';
+  $('kbdHint').textContent = quiz.mode === 'exam' ? 'A–E select · ←/→ move · F flag · Enter next' : 'A–E answer · 1/2/3 guess/shaky/confident · Enter next · F flag · shift+letter eliminate';
   window.scrollTo({ top: 0 });
 }
 function renderActions() {
@@ -991,6 +1020,8 @@ function commit(L, conf) {
 }
 function paintAnswer(a) {
   const q = curQ(), k = q.k, s = stats()[k] || {};
+  $('choices').classList.remove('zoned');
+  document.querySelectorAll('.choice.zoned').forEach(c => { c.classList.remove('zoned'); c.querySelector('.zones')?.remove(); });
   document.querySelectorAll('.choice').forEach(b => {
     b.classList.add('locked'); b.classList.remove('sel');
     const bl = b.dataset.letter;
@@ -1149,7 +1180,7 @@ function renderResults(rec) {
   else if (rec.mode === 'exam') { const nc = normsCard(rec); if (nc) ins.append(nc); }
   const guessesRight = rec.ans.filter(a => a.c === 0 && a.ok).length, certainWrong = rec.ans.filter(a => a.c === 2 && !a.ok).length, certain = rec.ans.filter(a => a.c === 2).length;
   const lines = [];
-  if (certain) lines.push(`You said <b>Certain</b> ${certain}× and were right ${certain - certainWrong}×${certainWrong ? ` — the ${certainWrong} confident miss${certainWrong > 1 ? 'es are' : ' is'} your highest-yield review` : ' — well calibrated'}.`);
+  if (certain) lines.push(`You said <b>Confident</b> ${certain}× and were right ${certain - certainWrong}×${certainWrong ? ` — the ${certainWrong} confident miss${certainWrong > 1 ? 'es are' : ' is'} your highest-yield review` : ' — well calibrated'}.`);
   if (guessesRight) lines.push(`${guessesRight} correct guess${guessesRight > 1 ? 'es' : ''} scheduled for early re-review rather than counted as learned.`);
   if (rec.mode === 'exam' && rec.ms) { const sq = rec.ms / 1000 / n; lines.push(sq > settings.secPerQ ? `Pace was <b>${Math.round(sq)} s/question</b>, slower than the ~${settings.secPerQ} s the ITE allows.` : `Pace ${Math.round(sq)} s/question — on track for the ITE's ~${settings.secPerQ} s.`); }
   if (lines.length) { const c = el('div', 'card tinted'); c.style.marginBottom = '10px'; c.innerHTML = lines.map(l => `<p class="sub" style="color:var(--text2)">${l}</p>`).join(''); ins.append(c); }
@@ -1574,14 +1605,13 @@ function selectCtl(key, options, onChange) {
 function renderSettings() {
   const box = $('settingsCard'); box.innerHTML = '';
   box.append(
-    settingRow('Confidence check', 'Rate how sure you are before seeing the answer. Powers calibration and smarter scheduling.', switchCtl('confidence')),
+    confStyleRow(),
     settingRow('Auto-advance after correct', 'Skip the Next tap when you get it right (1.4 s pause).', switchCtl('autoAdvance')),
     settingRow('Daily goal', 'Questions per day for the streak ring.', selectCtl('dailyGoal', [[10, '10'], [20, '20'], [30, '30'], [40, '40'], [60, '60'], [100, '100']])),
     settingRow('Smart session size', 'Questions in a Study-now session.', selectCtl('smartSize', [[10, '10'], [15, '15'], [20, '20'], [30, '30'], [40, '40']])),
     settingRow('Exam pace', 'Seconds per question in timed blocks. The FMCE allows 95 min per 75 questions (76 s).', selectCtl('secPerQ', [[60, '60 s'], [72, '72 s'], [76, '76 s (FMCE)'], [90, '90 s'], [120, '120 s']])),
     settingRow('Training year', 'Highlights your PGY in national comparisons.', selectCtl('pgy', [[0, 'Not set'], [1, 'PGY-1'], [2, 'PGY-2'], [3, 'PGY-3']])),
-    settingRow('Skip questions most residents get right', skipEasyDesc(), selectCtl('skipEasy', [[-1, 'Off'], [0, `Easiest (${easyCount(0)})`], [150, `Easy (${easyCount(150)})`], [300, `Easier half (${easyCount(300)})`]], () => { renderSettings(); })),
-    settingRow('Show older questions flagged as outdated', 'Questions from the 2020–2021 forms that an AI review judged outdated are hidden. Turn on to study them anyway, with the reason shown.', switchCtl('showOutdatedOld', () => renderSettings())),
+    settingRow('Skip questions most residents get right', skipEasyDesc(), selectCtl('skipEasy', [[-1, 'Off'], [0, `Easiest (${easyCount(0)})`], [150, `Easy (${easyCount(150)})`], [300, `Easier half (${easyCount(300)})`]], () => { settings.skipEasySet = true; saveSettings(); renderSettings(); })),
     hideFlaggedRow(),
     settingRow('Include items ABFM removed from scoring', 'Off keeps the few ambiguous items (deleted for content reasons) out of new sessions. They stay in Browse.', switchCtl('includeDeleted')),
     settingRow('Show countdown in timed blocks', 'Off shows answered count instead of the clock.', switchCtl('showTimer')),
@@ -1652,18 +1682,29 @@ function swatchPicker() {
   wrap.append(custom);
   return wrap;
 }
+function confStyleRow() {
+  const seg = el('div', 'seg wrap');
+  [['zones', '3 zones'], ['buttons', 'Buttons'], ['off', 'Off']].forEach(([v, label]) => {
+    const b = el('button', settings.confStyle === v ? 'on' : '', label);
+    b.onclick = () => { settings.confStyle = v; settings.confidence = v !== 'off'; saveSettings(); renderSettings(); };
+    seg.append(b);
+  });
+  const r = settingRow('Confidence rating', '3 zones: tap the left (guess), middle (shaky) or right (confident) part of an answer, one tap. Buttons: choose an answer, then rate it. Ratings power calibration and smarter scheduling.', el('span'));
+  r.classList.add('stacked'); r.lastChild.remove(); r.append(seg);
+  return r;
+}
 function hideFlaggedRow() {
-  const years = [...new Set(QUESTIONS.filter(q => q.y >= OLDER_BEFORE).map(q => q.y))].sort();
+  const years = YEARS;
   const row = el('div', 'chip-row');
   years.forEach(y => {
     const n = QUESTIONS.filter(q => q.y === y && q.ai && q.ai.s === 'outdated').length;
     const on = (settings.hideFlaggedYears || []).includes(y);
     const c = el('button', 'chip' + (on ? ' on' : '')); c.textContent = `${y}`; c.append(el('span', 'n', `${n}`));
     c.setAttribute('aria-pressed', on);
-    c.onclick = () => { const set = new Set(settings.hideFlaggedYears || []); on ? set.delete(y) : set.add(y); settings.hideFlaggedYears = [...set]; saveSettings(); renderSettings(); };
+    c.onclick = () => { const set = new Set(settings.hideFlaggedYears || []); on ? set.delete(y) : set.add(y); settings.hideFlaggedYears = [...set].sort(); settings.hideFlaggedSet = true; saveSettings(); renderSettings(); };
     row.append(c);
   });
-  const r = settingRow('Hide AI-flagged questions by year', 'Off by default: flagged 2022–2025 questions stay in, labelled with the reason. Pick a year to hide its flagged ones.', el('span'));
+  const r = settingRow('Hide questions flagged as outdated', 'An AI review flagged questions whose keyed answer may no longer match current guidance. Selected years are hidden (default: 2022 and earlier); other years show them with the reason. Numbers are flagged counts.', el('span'));
   r.classList.add('stacked'); r.lastChild.remove(); r.append(row);
   return r;
 }
@@ -1686,7 +1727,7 @@ function renderAbout() {
     </ul>
     ${BLUEPRINTS.length ? `<div class="kv" style="margin-top:12px">${BLUEPRINTS.map(b => `<span class="k">${b}</span><span class="v">${META.blueprint[b]}%</span>`).join('')}</div>` : ''}
     <p class="cite" style="margin-top:12px">Bank: ABFM ITE ${YEARS[0]}–${YEARS[YEARS.length - 1]}, ${QUESTIONS.length} items. Category labels are keyword-derived and approximate. Hite is not affiliated with the ABFM.</p>`;
-  $('aboutFoot').innerHTML = `Hite v${APP_VERSION.replace('__VERSION__', 'dev')} · progress is stored only on this device<br>Built for family medicine residents. Thanks to my colleague <b>NR</b> for the inspiration to build this.`;
+  $('aboutFoot').innerHTML = `Hite v${APP_VERSION.replace('__VERSION__', 'dev')} · progress is stored only on this device<br>Made by <a href="https://github.com/robbie-med" target="_blank" rel="noopener">robbie-med</a> · <a href="https://github.com/robbie-med/Hite" target="_blank" rel="noopener">open source (MIT)</a><br>Built for family medicine residents. Thanks to my colleague <b>NR</b> for the inspiration.<br>Not affiliated with the ABFM. Questions and critiques © ABFM.`;
 }
 
 /* ---------------- backup / import / snapshots ---------------- */
@@ -1838,7 +1879,7 @@ async function checkLatest() {
   checkingLatest = true;
   try {
     const r = await fetch('sw.js?t=' + Date.now(), { cache: 'no-store' });
-    // Written so build.py's version stamping (which rewrites "const VERSION = 'dc2fd4a284b7'") can't touch it.
+    // Written so build.py's version stamping (which rewrites "const VERSION = '8b44058801a5'") can't touch it.
     const m = r.ok && (await r.text()).match(/VERSION\s*=\s*'([0-9a-f]{12})'/);
     if (m && m[1] && m[1] !== APP_VERSION && !store.get('versions', []).includes(m[1])) await navigator.serviceWorker.register('sw.js?v=' + m[1]);
   } catch {}
