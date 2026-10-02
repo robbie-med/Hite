@@ -1,0 +1,5 @@
+# Build pipeline (parse_pdfs.py, build.py, tools/). The site itself has no dependencies.
+pymupdf>=1.23        # PDF text + image extraction
+cryptography>=41     # AES-256-GCM encryption of the question bank
+Pillow>=10           # image downscaling, app icons
+# Optional: poppler-utils (pdftotext) for tools/audit_bank.py; Node.js for exam-meta.js reads and checks.

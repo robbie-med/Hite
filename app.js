@@ -6,7 +6,7 @@
    an app update: see migrate() for how older data is carried
    forward (and snapshotted first).
    ============================================================ */
-const APP_VERSION = '7570d43f7eda';
+const APP_VERSION = 'dc2fd4a284b7';
 const $ = id => document.getElementById(id);
 const PBKDF2_ITER = 310000;
 const DAY = 86400000;
@@ -64,7 +64,7 @@ const store = {
 const DEFAULTS = {
   theme: 'auto', textSize: 1, confidence: true, autoAdvance: false, dailyGoal: 20, examDate: '',
   secPerQ: 76, backupEvery: 7, smartSize: 20, showTimer: true, revealInBrowse: false,
-  pgy: 0, includeDeleted: false, seed: '', icons: 'icons', skipEasy: 150, showOutdatedOld: false, hideFlaggedYears: [],
+  pgy: 0, includeDeleted: false, seed: '', icons: 'icons', skipEasy: -1, showOutdatedOld: false, hideFlaggedYears: [],
 };
 let settings = Object.assign({}, DEFAULTS, store.get('settings', {}));
 function saveSettings() { store.set('settings', settings); applyAppearance(); }
@@ -290,6 +290,73 @@ function enterApp() {
   buildMoreUI();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   showView('home');
+  // First unlock on this device: short intro. People who already have progress skip it.
+  if (!store.get('introSeen', false)) { if (overall().attempts) store.set('introSeen', true); else showIntro(); }
+}
+
+/* ---------------- first-run intro ---------------- */
+let installPrompt = null;   // Chrome/Android "Install app" prompt, kept until the user asks for it
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; });
+const isIOSDevice = () => /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+function introSlides() {
+  const years = YEARS.length ? `${YEARS[0]}–${YEARS[YEARS.length - 1]}` : '';
+  const install = isStandalone()
+    ? `<p>You're already using Hite as an app. It works offline, and your device is less likely to clear your progress.</p>`
+    : isIOSDevice()
+      ? `<p>Put Hite on your home screen so it opens full-screen, works offline and keeps your progress safe. Safari can clear sites you haven't visited in a while; home-screen apps are protected.</p>
+         <ol class="steps"><li>Tap <b>Share</b> <span class="ms" aria-hidden="true">ios_share</span> in Safari</li><li>Choose <b>Add to Home Screen</b></li><li>Open Hite from the new icon</li></ol>`
+      : `<p>Install Hite so it opens full-screen, works offline and keeps your progress safe.</p>
+         ${installPrompt ? '<button class="btn sm" id="introInstall" type="button">Install app</button>' : '<ol class="steps"><li>Open your browser menu <span class="ms" aria-hidden="true">more_vert</span></li><li>Choose <b>Install app</b> or <b>Add to Home screen</b></li></ol>'}`;
+  return [
+    { ic: 'full', t: 'Welcome to Hite', b: `<p>${QUESTIONS.length} real ABFM In-Training Exam questions (${years}) with the official critiques. Your answers stay on this device.</p><p class="muted">Swipe or tap Next. This takes 30 seconds.</p>` },
+    { ic: 'study', t: 'Pick how to study', b: `<ul class="ticks"><li><b>Study now</b> picks for you: reviews that are due, your weak areas, then new questions</li><li><b>Quick 5 / 10</b> for spare minutes, <b>Timed 40</b> for exam pace</li><li><b>By difficulty</b> blocks from ABFM's national ratings</li><li><b>Full ITE</b> takes a whole exam and gives a real scaled score</li></ul>` },
+    { ic: 'missed', t: 'It remembers for you', b: `<p>Before each answer you can rate how sure you are. Misses, guesses and confident mistakes come back at the right time, so you review what you actually need.</p><p class="muted">Prefer to skip questions most residents get right? Turn it on in More.</p>` },
+    { ic: 'install', t: isStandalone() ? 'You\'re all set as an app' : 'Make it an app', b: install },
+    { ic: 'backup', t: 'Back up now and then', b: `<p>Progress lives only on this device. A new phone, a cleared browser or a reinstall would lose it.</p><p><b>More → Back up now</b> saves a small file you can keep in Files, iCloud or email. Hite will remind you.</p>` },
+    { ic: 'palette', t: 'Make it yours', b: `<p>Pick a colour. You can change it, the theme, icons and text size anytime in <b>More → Appearance</b>.</p><div id="introSwatches"></div>` },
+  ];
+}
+function showIntro() {
+  document.querySelector('.intro')?.remove();
+  const slides = introSlides();
+  let i = 0, x0 = null;
+  const ov = el('div', 'intro'); ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true'); ov.setAttribute('aria-label', 'Welcome to Hite');
+  ov.innerHTML = `<button class="intro-skip" type="button">Skip</button>
+    <div class="intro-track">${slides.map((sl, n) => `<section class="intro-slide" aria-hidden="${n ? 'true' : 'false'}"><div class="intro-ic">${ic(sl.ic)}</div><h2>${sl.t}</h2><div class="intro-body">${sl.b}</div></section>`).join('')}</div>
+    <div class="intro-foot"><button class="btn sm danger intro-back" type="button" style="color:var(--md-primary)">Back</button>
+      <div class="intro-dots" aria-hidden="true">${slides.map(() => '<i></i>').join('')}</div>
+      <button class="btn sm intro-next" type="button">Next</button></div>`;
+  const track = ov.querySelector('.intro-track'), dots = ov.querySelectorAll('.intro-dots i'), next = ov.querySelector('.intro-next'), back = ov.querySelector('.intro-back');
+  const done = () => { store.set('introSeen', true); document.removeEventListener('keydown', onKey, true); ov.classList.add('out'); setTimeout(() => ov.remove(), 220); };
+  const go = n => {
+    i = clamp(n, 0, slides.length - 1);
+    track.style.transform = `translateX(${-100 * i}%)`;
+    ov.querySelectorAll('.intro-slide').forEach((sl, n2) => sl.setAttribute('aria-hidden', n2 !== i));
+    dots.forEach((d, n2) => d.classList.toggle('on', n2 === i));
+    back.style.visibility = i ? 'visible' : 'hidden';
+    next.textContent = i === slides.length - 1 ? 'Start studying' : 'Next';
+  };
+  const onKey = e => {
+    if (e.key === 'Escape') done(); else if (e.key === 'ArrowRight') go(i + 1); else if (e.key === 'ArrowLeft') go(i - 1); else return;
+    e.preventDefault(); e.stopPropagation();
+  };
+  next.onclick = () => i === slides.length - 1 ? done() : go(i + 1);
+  back.onclick = () => go(i - 1);
+  ov.querySelector('.intro-skip').onclick = done;
+  track.addEventListener('pointerdown', e => { x0 = e.clientX; });
+  track.addEventListener('pointerup', e => { if (x0 === null) return; const dx = e.clientX - x0; x0 = null; if (Math.abs(dx) > 50) go(i + (dx < 0 ? 1 : -1)); });
+  ov.querySelector('#introInstall')?.addEventListener('click', async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt(); const r = await installPrompt.userChoice.catch(() => null); installPrompt = null;
+    if (r && r.outcome === 'accepted') toast('Installing Hite');
+  });
+  const sw = ov.querySelector('#introSwatches');
+  const paintSwatches = () => { sw.innerHTML = ''; const p = swatchPicker(); p.addEventListener('click', () => setTimeout(paintSwatches, 0)); p.addEventListener('change', () => setTimeout(paintSwatches, 0)); sw.append(p); };
+  paintSwatches();
+  document.addEventListener('keydown', onKey, true);
+  document.body.append(ov);
+  go(0); next.focus();
 }
 
 /* ---------------- navigation ---------------- */
@@ -1480,6 +1547,7 @@ function buildMoreUI() {
     if (await dialog({ title: 'Sign out?', msg: 'You will need the password to unlock again. Your progress stays on this device.', ok: 'Sign out' })) { store.del('key'); location.reload(); }
   });
   $('restoreSnapBtn').addEventListener('click', openRestore);
+  $('introBtn').addEventListener('click', showIntro);
 }
 function renderMore() {
   const lb = store.get('lastBackup', null), since = store.get('sinceBackup', 0);
@@ -1770,7 +1838,7 @@ async function checkLatest() {
   checkingLatest = true;
   try {
     const r = await fetch('sw.js?t=' + Date.now(), { cache: 'no-store' });
-    // Written so build.py's version stamping (which rewrites "const VERSION = '7570d43f7eda'") can't touch it.
+    // Written so build.py's version stamping (which rewrites "const VERSION = 'dc2fd4a284b7'") can't touch it.
     const m = r.ok && (await r.text()).match(/VERSION\s*=\s*'([0-9a-f]{12})'/);
     if (m && m[1] && m[1] !== APP_VERSION && !store.get('versions', []).includes(m[1])) await navigator.serviceWorker.register('sw.js?v=' + m[1]);
   } catch {}

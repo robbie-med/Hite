@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install build dependencies
+        run: pip install cryptography pillow
+      - name: Repository health (no copyrighted files, version stamps, assets, encryption headers, JS syntax)
+        run: python3 tools/check_repo.py
+      - name: Difficulty data matches the handbook chart transcriptions
+        run: python3 tools/check_charts.py
+      - name: Version stamp is current (build was run after the last change)
+        run: |
+          python3 build.py --assets-only
+          git diff --exit-code -- sw.js app.js index.html styles.css || { echo "::error::Run 'python3 build.py --assets-only' and commit the result"; exit 1; }

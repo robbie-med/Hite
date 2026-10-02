@@ -1,10 +1,15 @@
-# Never commit the copyrighted source material or plaintext question bank —
-# only the encrypted docs/data.enc belongs in the repo.
+# Never commit copyrighted ABFM source material, the plaintext bank, or secrets.
+# Only the encrypted data.enc / images.enc belong in the repo (tools/check_repo.py enforces this).
 *.pdf
-questions.json
-.salt
-__pycache__/
-*.txt
-critiques/
 *.zip
+questions.json
 annotations.json
+.salt
+critiques/
+# Text pasted or extracted from the PDFs
+*.txt
+!requirements.txt
+!tools/charts/*.txt
+
+__pycache__/
+.DS_Store

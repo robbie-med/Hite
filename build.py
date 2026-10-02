@@ -139,36 +139,69 @@ def encrypt(payload: bytes, password: str, salt: bytes) -> bytes:
     return MAGIC + salt + iv + ct
 
 
+# ---- app icon: graduation cap on the default indigo (theme.js DEFAULT_SEED, tone 40) ----
+ICON_BG, ICON_BOARD, ICON_BASE = "#4C53BA", "#FFFFFF", "#DBE1FF"
+
+
+def _cubic(p0, p1, p2, p3, n=24):
+    return [tuple((1 - t) ** 3 * a + 3 * (1 - t) ** 2 * t * b + 3 * (1 - t) * t * t * c + t ** 3 * d
+                  for a, b, c, d in zip(p0, p1, p2, p3)) for t in (i / n for i in range(n + 1))]
+
+
+def _cap_shapes():
+    """Mortarboard geometry in a 512 box (content spans x 72-456, y 140-388)."""
+    board = [(256, 140), (440, 222), (256, 304), (72, 222)]
+    base = [(148, 262), (148, 330)] + _cubic((148, 330), (148, 362), (196, 388), (256, 388)) \
+        + _cubic((256, 388), (316, 388), (364, 362), (364, 330)) + [(364, 262), (256, 310)]
+    return board, base
+
+
+def icon_svg(full_bleed=False, scale=0.78):
+    """SVG master. full_bleed=False gives the rounded-square favicon; True a square for masks."""
+    t = f"translate(256 256) scale({scale}) translate(-264 -264)"
+    bg = '<rect width="512" height="512" fill="{c}"/>' if full_bleed else '<rect width="512" height="512" rx="112" fill="{c}"/>'
+    return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">' + bg.format(c=ICON_BG) +
+            f'<g transform="{t}">'
+            f'<path d="M148 262v68c0 32 48 58 108 58s108-26 108-58v-68l-108 48z" fill="{ICON_BASE}"/>'
+            f'<path d="M256 140l184 82-184 82-184-82z" fill="{ICON_BOARD}"/>'
+            f'<path d="M440 222v96" stroke="{ICON_BOARD}" stroke-width="14" stroke-linecap="round"/>'
+            f'<circle cx="440" cy="326" r="16" fill="{ICON_BOARD}"/></g></svg>')
+
+
+def _render(size, full_bleed, scale):
+    from PIL import Image, ImageDraw
+    S = size * 4                                   # draw large, downsample for clean edges
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    k = S / 512
+    if full_bleed:
+        d.rectangle([0, 0, S, S], fill=ICON_BG)
+    else:
+        d.rounded_rectangle([0, 0, S - 1, S - 1], radius=int(112 * k), fill=ICON_BG)
+    tf = lambda pts: [((256 + (x - 264) * scale) * k, (256 + (y - 264) * scale) * k) for x, y in pts]
+    board, base = _cap_shapes()
+    d.polygon(tf(base), fill=ICON_BASE)
+    d.polygon(tf(board), fill=ICON_BOARD)
+    (x0, y0), (x1, y1) = tf([(440, 222), (440, 318)])
+    d.line([(x0, y0), (x1, y1)], fill=ICON_BOARD, width=max(1, int(14 * scale * k)))
+    rr = 7 * scale * k                              # round cap where the cord meets the board
+    d.ellipse([x0 - rr, y0 - rr, x0 + rr, y0 + rr], fill=ICON_BOARD)
+    (cx, cy), = tf([(440, 326)]); r = 16 * scale * k
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=ICON_BOARD)
+    return img.resize((size, size), Image.LANCZOS)
+
+
 def make_icons():
-    from PIL import Image, ImageDraw, ImageFont
-
+    """favicon.svg/.ico, apple-touch-icon (full bleed: iOS rounds it), PWA icons (any + maskable)."""
+    (DOCS / "favicon.svg").write_text(icon_svg())
+    _render(256, False, 0.78).save(DOCS / "favicon.ico", sizes=[(16, 16), (32, 32), (48, 48), (64, 64)])
+    _render(180, True, 0.70).convert("RGB").save(DOCS / "apple-touch-icon.png")
     for size in (192, 512):
-        img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-        d = ImageDraw.Draw(img)
-        r = size // 5
-        # Rounded-square gradient-ish background
-        d.rounded_rectangle([0, 0, size - 1, size - 1], radius=r, fill=(20, 23, 34, 255))
-        d.rounded_rectangle([0, 0, size - 1, size - 1], radius=r, outline=(109, 127, 247, 255), width=max(2, size // 48))
-        # "ITE" text
-        font = None
-        for name in ("DejaVuSans-Bold.ttf", "DejaVuSans.ttf"):
-            try:
-                font = ImageFont.truetype(name, int(size * 0.34))
-                break
-            except OSError:
-                continue
-        text = "ITE"
-        if font:
-            bbox = d.textbbox((0, 0), text, font=font)
-            w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-            d.text(((size - w) / 2 - bbox[0], (size - h) / 2 - bbox[1]), text, font=font, fill=(122, 139, 250, 255))
-        else:
-            d.text((size * 0.3, size * 0.4), text, fill=(122, 139, 250, 255))
-        # Accent check mark bar at bottom
-        d.rounded_rectangle([size * 0.3, size * 0.72, size * 0.7, size * 0.76], radius=size // 96, fill=(45, 212, 160, 255))
-        img.save(DOCS / f"icon-{size}.png")
+        _render(size, False, 0.78).save(DOCS / f"icon-{size}.png")
+        _render(size, True, 0.60).save(DOCS / f"icon-maskable-{size}.png")   # inside the 80% safe zone
 
-
+ICON_FILES = ("favicon.svg", "favicon.ico", "apple-touch-icon.png", "icon-192.png", "icon-512.png",
+              "icon-maskable-192.png", "icon-maskable-512.png")
 VERSION_FILES = ("index.html", "app.js", "sw.js", "styles.css")
 VERSION_PATTERNS = (
     (r"(const VERSION = ')[^']*(')", r"\g<1>{v}\g<2>"),        # sw.js
@@ -192,6 +225,9 @@ def stamp_version() -> str:
     if (DOCS / "images.enc").exists():
         h.update((DOCS / "images.enc").read_bytes())
     h.update((DOCS / "symbols.woff2").read_bytes())
+    for icon in ICON_FILES:
+        if (DOCS / icon).exists():
+            h.update((DOCS / icon).read_bytes())
     for name in ("index.html", "app.js", "styles.css", "exam-meta.js", "theme.js"):
         h.update(_normalized(DOCS / name))
     ver = h.hexdigest()[:12]

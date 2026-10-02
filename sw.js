@@ -2,7 +2,7 @@
    VERSION is stamped by build.py. A new version installs in the background and
    activates at once; the page reloads into it, or shows a Reload bar mid-quiz.
    localStorage (progress) is untouched by updates. */
-const VERSION = '7570d43f7eda';
+const VERSION = 'dc2fd4a284b7';
 const CACHE = 'ite-' + VERSION;
 const ASSETS = [
   './',
@@ -15,8 +15,13 @@ const ASSETS = [
   './data.enc',
   './images.enc',
   './manifest.webmanifest',
+  './favicon.svg',
+  './favicon.ico',
+  './apple-touch-icon.png',
   './icon-192.png',
   './icon-512.png',
+  './icon-maskable-192.png',
+  './icon-maskable-512.png',
 ];
 
 self.addEventListener('install', e => {
