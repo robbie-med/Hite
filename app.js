@@ -6,7 +6,7 @@
    an app update: see migrate() for how older data is carried
    forward (and snapshotted first).
    ============================================================ */
-const APP_VERSION = 'f935be246e98';
+const APP_VERSION = '4d9259f08e95';
 const $ = id => document.getElementById(id);
 const PBKDF2_ITER = 310000;
 const DAY = 86400000;
@@ -301,11 +301,12 @@ function enterApp() {
   buildMoreUI();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   showView('home');
-  // First unlock on this device: short intro. People who already have progress skip it.
-  if (!store.get('introSeen', false)) { if (overall().attempts) store.set('introSeen', true); else showIntro(); }
+  // Intro on first unlock, and once more for everyone whenever INTRO_VERSION is bumped.
+  if (store.get('introVersion', 0) < INTRO_VERSION) showIntro();
 }
 
 /* ---------------- first-run intro ---------------- */
+const INTRO_VERSION = 1;    // bump to show the intro again to existing users
 let installPrompt = null;   // Chrome/Android "Install app" prompt, kept until the user asks for it
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; });
 const isIOSDevice = () => /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -320,7 +321,9 @@ function introSlides() {
       : `<p>Install Hite so it opens full-screen, works offline and keeps your progress safe.</p>
          ${installPrompt ? '<button class="btn sm" id="introInstall" type="button">Install app</button>' : '<ol class="steps"><li>Open your browser menu <span class="ms" aria-hidden="true">more_vert</span></li><li>Choose <b>Install app</b> or <b>Add to Home screen</b></li></ol>'}`;
   return [
-    { ic: 'full', t: 'Welcome to Hite', b: `<p>${QUESTIONS.length} real ABFM In-Training Exam questions (${years}) with the official critiques. Your answers stay on this device.</p><p class="muted">Swipe or tap Next. This takes 30 seconds.</p>` },
+    overall().attempts
+      ? { ic: 'full', t: 'Welcome back', b: `<p>Hite has a new look and new ways to study: one-tap confidence, difficulty blocks, clinical images and ${QUESTIONS.length} questions (${years}). Your progress is all still here.</p><p class="muted">Swipe or tap Next for a 30-second tour.</p>` }
+      : { ic: 'full', t: 'Welcome to Hite', b: `<p>${QUESTIONS.length} real ABFM In-Training Exam questions (${years}) with the official critiques. Your answers stay on this device.</p><p class="muted">Swipe or tap Next. This takes 30 seconds.</p>` },
     { ic: 'study', t: 'Pick how to study', b: `<ul class="ticks"><li><b>Study now</b> picks for you: reviews that are due, your weak areas, then new questions</li><li><b>Quick 5 / 10</b> for spare minutes, <b>Timed 40</b> for exam pace</li><li><b>By difficulty</b> blocks from ABFM's national ratings</li><li><b>Full ITE</b> takes a whole exam and gives a real scaled score</li></ul>` },
     { ic: 'missed', t: 'One tap: answer + how sure', b: `<p>Each answer is split into three. Tap the part that matches how sure you are:</p>
       <div class="intro-demo" aria-hidden="true"><div class="choice zoned demo"><div class="zones"><span class="zone z0"><span class="zl">Guess</span></span><span class="zone z1"><span class="zl">Shaky</span></span><span class="zone z2"><span class="zl">Confident</span></span></div><span class="letter">B</span><span class="txt">Start an SGLT2 inhibitor</span></div></div>
@@ -342,7 +345,7 @@ function showIntro() {
       <div class="intro-dots" aria-hidden="true">${slides.map(() => '<i></i>').join('')}</div>
       <button class="btn sm intro-next" type="button">Next</button></div>`;
   const track = ov.querySelector('.intro-track'), dots = ov.querySelectorAll('.intro-dots i'), next = ov.querySelector('.intro-next'), back = ov.querySelector('.intro-back');
-  const done = () => { store.set('introSeen', true); document.removeEventListener('keydown', onKey, true); ov.classList.add('out'); setTimeout(() => ov.remove(), 220); };
+  const done = () => { store.set('introVersion', INTRO_VERSION); document.removeEventListener('keydown', onKey, true); ov.classList.add('out'); setTimeout(() => ov.remove(), 220); };
   const go = n => {
     i = clamp(n, 0, slides.length - 1);
     track.style.transform = `translateX(${-100 * i}%)`;
@@ -1895,7 +1898,7 @@ async function checkLatest() {
   checkingLatest = true;
   try {
     const r = await fetch('sw.js?t=' + Date.now(), { cache: 'no-store' });
-    // Written so build.py's version stamping (which rewrites "const VERSION = 'f935be246e98'") can't touch it.
+    // Written so build.py's version stamping (which rewrites "const VERSION = '4d9259f08e95'") can't touch it.
     const m = r.ok && (await r.text()).match(/VERSION\s*=\s*'([0-9a-f]{12})'/);
     if (m && m[1] && m[1] !== APP_VERSION && !store.get('versions', []).includes(m[1])) await navigator.serviceWorker.register('sw.js?v=' + m[1]);
   } catch {}
