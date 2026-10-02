@@ -9,7 +9,7 @@
   font-style: normal;
   font-weight: 100 700;
   font-display: block;
-  src: url(symbols.woff2?v=b1d8499d8045) format('woff2');
+  src: url(symbols.woff2?v=7570d43f7eda) format('woff2');
 }
 :root {
   --fs: 1;
@@ -104,6 +104,10 @@ header.appbar {
   transition: background 0.2s var(--ease);
 }
 header.appbar.scrolled { background: var(--md-sc); }
+/* No title bar: just a status-bar-height strip that keeps scrolled content out from under the clock. */
+header.appbar { min-height: env(safe-area-inset-top); }
+#view-home .hero { padding-top: 20px; }
+.view:not(#view-home):not(#view-quiz) > :first-child { margin-top: 16px; }
 .appbar-inner { max-width: 760px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; height: 64px; padding: 0 16px; gap: 10px; }
 .brand { font-size: 1.375rem; font-weight: 400; display: flex; align-items: center; gap: 12px; }
 .brand .dot {
@@ -407,6 +411,11 @@ details.builder[open] > summary .chev { transform: rotate(180deg); }
 .q-text { font-size: 1.0625rem; line-height: 1.6; margin-bottom: 20px; }
 .q-text p { white-space: pre-line; }
 .q-text p + p { margin-top: 10px; }
+/* AI currency flags and errata */
+.ai-note { margin-top: 14px; border-radius: var(--shape-lg); padding: 12px 14px; background: var(--md-warn-container); color: var(--md-on-warn-container); font-size: 0.875rem; line-height: 1.5; }
+.ai-note.dated, .ai-note.errata { background: var(--md-sc-high); color: var(--md-on-surface); }
+.ai-note .h { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.ai-note .f { margin-top: 6px; font-size: 0.75rem; opacity: 0.8; }
 /* clinical figures */
 .q-figs { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 4px; }
 .q-fig {

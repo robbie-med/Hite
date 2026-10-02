@@ -6,7 +6,7 @@
    an app update: see migrate() for how older data is carried
    forward (and snapshotted first).
    ============================================================ */
-const APP_VERSION = 'b1d8499d8045';
+const APP_VERSION = '7570d43f7eda';
 const $ = id => document.getElementById(id);
 const PBKDF2_ITER = 310000;
 const DAY = 86400000;
@@ -30,7 +30,8 @@ const ICONS = {
   warn: ['warning', '⚠'], note: ['edit_note', '📝'], check: ['check', '✓'], cross: ['close', '✗'],
   unseen: ['radio_button_unchecked', '○'], blank: ['remove', '–'], strike: ['block', '⊘'], dismiss: ['close', '✕'],
   guess: ['casino', '🎲'], fair: ['thumb_up', '🤔'], certain: ['verified', '💪'], event: ['event', '📅'],
-  weak: ['trending_down', '📉'], goal: ['check', '✓'], image: ['image', '🖼️'],
+  weak: ['trending_down', '📉'], goal: ['check', '✓'], image: ['image', '🖼️'], five: ['counter_5', '5️⃣'],
+  t1: ['signal_cellular_alt_1_bar', '🟢'], t2: ['signal_cellular_alt_2_bar', '🟡'], t3: ['signal_cellular_alt', '🟠'], t4: ['local_fire_department', '🔥'],
 };
 const CONF_IC = ['guess', 'fair', 'certain'];
 const useEmoji = () => settings.icons === 'emoji';
@@ -63,7 +64,7 @@ const store = {
 const DEFAULTS = {
   theme: 'auto', textSize: 1, confidence: true, autoAdvance: false, dailyGoal: 20, examDate: '',
   secPerQ: 76, backupEvery: 7, smartSize: 20, showTimer: true, revealInBrowse: false,
-  pgy: 0, includeDeleted: false, seed: '', icons: 'icons', skipEasy: 150,
+  pgy: 0, includeDeleted: false, seed: '', icons: 'icons', skipEasy: 150, showOutdatedOld: false, hideFlaggedYears: [],
 };
 let settings = Object.assign({}, DEFAULTS, store.get('settings', {}));
 function saveSettings() { store.set('settings', settings); applyAppearance(); }
@@ -95,7 +96,11 @@ const attempted = s => s && s.s > 0;
 /* ABFM national difficulty (0 easiest … 1000 hardest) where exam-meta.js has it. "Skip easy"
    leaves those out of new-question picking; reviews of missed items and Full ITE keep them. */
 const skippedEasy = q => settings.skipEasy >= 0 && q.df !== null && q.df <= settings.skipEasy;
-const pickable = q => (!q.x || settings.includeDeleted) && !skippedEasy(q);
+/* AI currency review: "outdated" items from older forms (before 2022) are hidden unless the
+   user opts in; 2022+ items are only labelled, with an optional per-year hide (off by default). */
+const OLDER_BEFORE = 2022;
+const hiddenAi = q => !!(q.ai && q.ai.s === 'outdated') && (q.y < OLDER_BEFORE ? !settings.showOutdatedOld : (settings.hideFlaggedYears || []).includes(q.y));
+const pickable = q => (!q.x || settings.includeDeleted) && !skippedEasy(q) && !hiddenAi(q);
 const diffWord = df => df >= 600 ? 'Hard' : df <= 150 ? 'Easy' : 'Medium';
 const pickableKeys = () => QUESTIONS.filter(pickable).map(q => q.k);
 
@@ -267,14 +272,12 @@ function enterApp() {
   BY_KEY = new Map(QUESTIONS.map(q => [q.k, q]));
   const rosterIdx = {};
   const diffIdx = {};
-  for (const y in META.years) {
-    const m = {}; for (const cat in META.years[y].roster) META.years[y].roster[cat].forEach(n => m[n] = cat); rosterIdx[y] = m;
-    const d = {}; for (const band in META.years[y].difficulty || {}) META.years[y].difficulty[band].forEach(n => d[n] = +band); diffIdx[y] = d;
-  }
+  for (const y in META.years) { const m = {}; for (const cat in META.years[y].roster) META.years[y].roster[cat].forEach(n => m[n] = cat); rosterIdx[y] = m; }
+  for (const y in META.difficulty || {}) { const d = {}; for (const band in META.difficulty[y]) META.difficulty[y][band].forEach(n => d[n] = +band); diffIdx[y] = d; }
   QUESTIONS.forEach(q => {
     const ym = yearMeta(q.y);
     q.b = ym && rosterIdx[q.y] ? rosterIdx[q.y][q.n] || null : null;   // official blueprint category
-    q.x = ym && ym.deleted[q.n] ? ym.deleted[q.n] : null;             // removed from ABFM scoring (reason)
+    q.x = (ym ? ym.deleted[q.n] : (META.removed && META.removed[q.y] || {})[q.n]) || null;   // removed from ABFM scoring (reason)
     q.df = diffIdx[q.y] && q.n in diffIdx[q.y] ? diffIdx[q.y][q.n] : null;   // national difficulty band
   });
   YEARS = [...new Set(QUESTIONS.map(q => q.y))].sort();
@@ -577,6 +580,7 @@ function renderHome() {
     $('resumeSub').textContent = `${sess.label} · ${answered} of ${sess.keys.length} answered${sess.mode === 'exam' ? ' · timed' : ''}`;
   }
   renderHomeCards(o, weak);
+  renderTiers();
   updateBadges(due);
 }
 function renderGoalRing() {
@@ -627,6 +631,33 @@ function renderHomeCards(o, weak) {
     box.append(c);
   }
 }
+/* Difficulty blocks: 10 questions from one band of ABFM's national difficulty, unseen first. */
+const TIERS = [
+  { id: 'medium', name: 'Medium', lo: 300, hi: 450, ic: 't1' },
+  { id: 'hard', name: 'Hard', lo: 500, hi: 650, ic: 't2' },
+  { id: 'vhard', name: 'Very hard', lo: 700, hi: 850, ic: 't3' },
+  { id: 'hardest', name: 'Hardest', lo: 900, hi: 1000, ic: 't4' },
+];
+const tierPool = t => QUESTIONS.filter(q => q.df !== null && q.df >= t.lo && q.df <= t.hi && (!q.x || settings.includeDeleted) && !hiddenAi(q));
+function tierKeys(t, n = 10) {
+  const st = stats(), pool = tierPool(t);
+  const unseen = shuffle(pool.filter(q => !attempted(st[q.k]))), seen = shuffle(pool.filter(q => attempted(st[q.k])));
+  return [...unseen, ...seen].slice(0, n).map(q => q.k);
+}
+function startTier(id) { const t = TIERS.find(x => x.id === id); const k = tierKeys(t); if (k.length) startQuiz(k, `${t.name} ${k.length}`, 'study', { type: 'tier', id }); }
+function renderTiers() {
+  const row = $('tierRow'), any = QUESTIONS.some(q => q.df !== null);
+  $('tierBox').classList.toggle('hidden', !any); if (!any) return;
+  row.innerHTML = '';
+  const st = stats();
+  TIERS.forEach(t => {
+    const pool = tierPool(t), unseen = pool.filter(q => !attempted(st[q.k])).length;
+    const b = el('button', 'quick-btn'); b.disabled = !pool.length;
+    b.innerHTML = `<div class="big">${ic(t.ic)}</div><div class="t">${t.name} 10</div><div class="s">rated ${t.lo}–${t.hi} · ${pool.length} questions${pool.length ? ` · ${unseen} unseen` : ''}</div>`;
+    b.onclick = () => startTier(t.id);
+    row.append(b);
+  });
+}
 function startDomain(d) {
   const st = stats();
   const pool = QUESTIONS.filter(q => (q.d === d || q.b === d) && pickable(q));
@@ -653,7 +684,7 @@ function openFullIte() {
   sheet('Full ITE simulation', body => {
     body.append(Object.assign(el('p', 'sub'), { textContent: `Take a whole ITE form in order, timed at ${settings.secPerQ} s/question (${Math.round(META.iteQuestions * settings.secPerQ / 60)} min), no feedback until you submit. Forms with ABFM scoring data give an official scaled score (200–800) and national PGY comparisons.` }));
     const st = stats();
-    YEARS.forEach(y => {
+    YEARS.filter(y => fullFormKeys(y).length >= 150).forEach(y => {   // older forms ship only their hardest items
       const keys = fullFormKeys(y), ym = yearMeta(y), seen = keys.filter(k => attempted(st[k])).length;
       const c = el('div', 'card'); c.style.marginBottom = '10px';
       c.innerHTML = `<div class="row between"><div><h3>ITE ${y}</h3><div class="sub">${keys.length} questions · ${seen} already seen${ym ? ' · <b>scaled score available</b>' : ' · percent only'}</div></div><button class="btn sm">Start</button></div>`;
@@ -772,6 +803,19 @@ function lightbox(q, j) {
   document.addEventListener('keydown', onKey, true);
   show(j); document.body.append(lb); close.focus();
 }
+/* AI currency flag, ABFM errata, and the older-form note, shown with the explanation. */
+function sourceNotes(q) {
+  const out = [];
+  if (q.ai) {
+    const n = el('div', 'ai-note ' + q.ai.s);
+    n.innerHTML = `<div class="h">${ic('warn')}<b>${q.ai.s === 'outdated' ? 'Flagged by AI as likely outdated' : 'AI note: the explanation is dated'}</b></div><div class="b"></div><div class="f">AI review, Oct 2026. Judged against what the ITE currently expects; verify before relying on it.</div>`;
+    n.querySelector('.b').textContent = q.ai.w;
+    out.push(n);
+  }
+  if (q.er) { const n = el('div', 'ai-note errata'); n.innerHTML = `<div class="h">${ic('note')}<b>Errata</b></div><div class="b"></div>`; n.querySelector('.b').textContent = q.er; out.push(n); }
+  if (q.y < OLDER_BEFORE) out.push(el('div', 'next-due', `From the ${q.y} ITE: only its hardest questions are included, each reviewed for currency. Guidelines may have moved since.`));
+  return out;
+}
 function renderQuestion() {
   stopTimer();
   const q = curQ(), k = q.k, s = stats()[k], a = quiz.ans[k];
@@ -784,6 +828,7 @@ function renderQuestion() {
   [q.y, q.d, '#' + q.n].forEach(t => meta.append(el('span', '', t)));
   if (q.b) { const b = el('span', 'bp', bpShort(q.b)); b.title = `ABFM blueprint: ${q.b} (${META.blueprint[q.b]}% of the exam)`; meta.append(b); }
   if (q.x && quiz.mode === 'study') { const w = el('span', 'warn'); w.innerHTML = ic('warn') + 'Removed from scoring'; w.title = `ABFM deleted this item from the ${q.y} ITE scoring (${q.x} reason)`; meta.append(w); }
+  if (q.ai && q.ai.s === 'outdated' && quiz.mode === 'study') { const w = el('span', 'warn'); w.innerHTML = ic('warn') + 'Flagged by AI'; meta.append(w); }
   if (quiz.mode === 'study' && attempted(s)) { const sb = el('span', 'seen-before'); sb.innerHTML = `Seen ×${s.s} · last ${ic(s.lc ? 'check' : 'cross')}`; meta.append(sb); }
   const tools = el('div', 'tools');
   const flag = el('button', 'icon-btn' + (isFlagged(k) ? ' on' : '')); flag.innerHTML = ic('flag'); flag.setAttribute('aria-label', 'Flag question'); flag.title = 'Flag for review (F)';
@@ -894,6 +939,7 @@ function paintAnswer(a) {
   if (q.df !== null) metaBits.push(`${diffWord(q.df)} nationally (${q.df}/1000)`);
   if (metaBits.length) v.append(el('span', 'meta', metaBits.join(' · ')));
   card.append(v, el('div', 'body', q.e || 'No explanation available for this item.'));
+  card.append(...sourceNotes(q));
   if (q.x) card.append(el('div', 'next-due', `ABFM removed this item from ${q.y} scoring for a ${q.x} reason${q.x === 'content' ? ' (ambiguous or more than one defensible answer)' : ''}. Weigh the key accordingly.`));
   if (!a.ok && a.conf === 2) card.append(el('div', 'next-due', 'Confident miss — this one is a misconception worth a note. It comes back tomorrow.'));
   else if (a.ok && a.conf === 0) card.append(el('div', 'next-due', 'Correct, but a guess — scheduled again soon so it actually sticks.'));
@@ -1091,6 +1137,7 @@ function againLike(src, mode) {
     case 'missed': { const k = shuffle(missedKeys()); return k.length ? startQuiz(k.slice(0, 40), 'Missed review', 'study', src) : toast('Nothing missed to review'); }
     case 'flagged': { const k = shuffle(flaggedKeys()); return k.length ? startQuiz(k, 'Flagged review', 'study', src) : toast('Nothing flagged'); }
     case 'domain': return startDomain(src.d);
+    case 'tier': return startTier(src.id);
     case 'retry': return startQuiz(shuffle(src.keys.filter(k => BY_KEY.has(k))), 'Retry missed', 'study', src);
     case 'browse': return startQuiz(shuffle(src.keys.filter(k => BY_KEY.has(k))).slice(0, 100), src.label || 'Browse results', 'study', src);
     case 'custom': { let keys = shuffle(builderKeys(src.cfg)); if (src.n) keys = keys.slice(0, src.n); return keys.length ? startQuiz(keys, builderLabel(src.cfg), mode, src) : toast('No questions match that filter any more'); }
@@ -1143,7 +1190,7 @@ function questionDetail(q, { pick = null, revealed = false } = {}) {
   const after = el('div');
   const showExpl = () => {
     after.innerHTML = '';
-    const ex = el('div', 'ex'); ex.textContent = q.e || 'No explanation available.'; after.append(ex);
+    const ex = el('div', 'ex'); ex.textContent = q.e || 'No explanation available.'; after.append(ex, ...sourceNotes(q));
     const s = stats()[q.k];
     if (attempted(s)) { const hist = el('div', 'detail-hist'); hist.textContent = `Answered ${s.s}× · ${s.c} correct · last ${agoDays(s.l)} ${s.lc ? '(right)' : '(missed)'}${s.due ? ` · next review ${relDays(s.due)}` : ''}`; after.append(hist); }
     const tools = el('div', 'row'); tools.style.marginTop = '10px';
@@ -1183,6 +1230,8 @@ function renderBrowse() {
   const y = $('bYear').value, d = $('bCat').value, bp = $('bBP').value, status = $('bStatus').value, df = $('bDiff').value, st = stats(), t = now();
   browseKeys = [];
   for (const q of QUESTIONS) {
+    if (hiddenAi(q) && status !== 'aiflag') continue;
+    if (status === 'aiflag' && !q.ai && !q.er) continue;
     if (y && String(q.y) !== y) continue;
     if (d && q.d !== d) continue;
     if (bp && q.b !== bp) continue;
@@ -1225,6 +1274,8 @@ function drawBrowseList(toks) {
     if (s && s.fl) tag('f', 'flag', 'flagged');
     if (s && s.nt) tag('', 'note', 'note');
     if (hasFigures(q)) tag('', 'image', 'image');
+    if (q.ai) tag('f', 'warn', q.ai.s === 'outdated' ? 'flagged by AI: outdated' : 'AI note');
+    if (q.er) tag('', 'note', 'errata');
     if (q.df !== null) mt.append(el('span', '', `${diffWord(q.df)} · ${q.df}`));
     if (attempted(s)) mt.append(el('span', '', `${s.c}/${s.s} correct`));
     const inner = el('div'); inner.style.flex = '1'; inner.style.minWidth = '0'; inner.append(body, mt);
@@ -1462,6 +1513,8 @@ function renderSettings() {
     settingRow('Exam pace', 'Seconds per question in timed blocks. The FMCE allows 95 min per 75 questions (76 s).', selectCtl('secPerQ', [[60, '60 s'], [72, '72 s'], [76, '76 s (FMCE)'], [90, '90 s'], [120, '120 s']])),
     settingRow('Training year', 'Highlights your PGY in national comparisons.', selectCtl('pgy', [[0, 'Not set'], [1, 'PGY-1'], [2, 'PGY-2'], [3, 'PGY-3']])),
     settingRow('Skip questions most residents get right', skipEasyDesc(), selectCtl('skipEasy', [[-1, 'Off'], [0, `Easiest (${easyCount(0)})`], [150, `Easy (${easyCount(150)})`], [300, `Easier half (${easyCount(300)})`]], () => { renderSettings(); })),
+    settingRow('Show older questions flagged as outdated', 'Questions from the 2020–2021 forms that an AI review judged outdated are hidden. Turn on to study them anyway, with the reason shown.', switchCtl('showOutdatedOld', () => renderSettings())),
+    hideFlaggedRow(),
     settingRow('Include items ABFM removed from scoring', 'Off keeps the few ambiguous items (deleted for content reasons) out of new sessions. They stay in Browse.', switchCtl('includeDeleted')),
     settingRow('Show countdown in timed blocks', 'Off shows answered count instead of the clock.', switchCtl('showTimer')),
     settingRow('Backup reminder', 'Nudge after sessions when a backup is overdue.', selectCtl('backupEvery', [[0, 'Off'], [1, 'Daily'], [3, 'Every 3 days'], [7, 'Weekly'], [14, 'Every 2 weeks']])),
@@ -1530,6 +1583,21 @@ function swatchPicker() {
   input.addEventListener('change', () => choose(input.value.toLowerCase()));
   wrap.append(custom);
   return wrap;
+}
+function hideFlaggedRow() {
+  const years = [...new Set(QUESTIONS.filter(q => q.y >= OLDER_BEFORE).map(q => q.y))].sort();
+  const row = el('div', 'chip-row');
+  years.forEach(y => {
+    const n = QUESTIONS.filter(q => q.y === y && q.ai && q.ai.s === 'outdated').length;
+    const on = (settings.hideFlaggedYears || []).includes(y);
+    const c = el('button', 'chip' + (on ? ' on' : '')); c.textContent = `${y}`; c.append(el('span', 'n', `${n}`));
+    c.setAttribute('aria-pressed', on);
+    c.onclick = () => { const set = new Set(settings.hideFlaggedYears || []); on ? set.delete(y) : set.add(y); settings.hideFlaggedYears = [...set]; saveSettings(); renderSettings(); };
+    row.append(c);
+  });
+  const r = settingRow('Hide AI-flagged questions by year', 'Off by default: flagged 2022–2025 questions stay in, labelled with the reason. Pick a year to hide its flagged ones.', el('span'));
+  r.classList.add('stacked'); r.lastChild.remove(); r.append(row);
+  return r;
 }
 const easyCount = t => QUESTIONS.filter(q => q.df !== null && q.df <= t).length;
 function skipEasyDesc() {
@@ -1702,7 +1770,7 @@ async function checkLatest() {
   checkingLatest = true;
   try {
     const r = await fetch('sw.js?t=' + Date.now(), { cache: 'no-store' });
-    // Written so build.py's version stamping (which rewrites "const VERSION = 'b1d8499d8045'") can't touch it.
+    // Written so build.py's version stamping (which rewrites "const VERSION = '7570d43f7eda'") can't touch it.
     const m = r.ok && (await r.text()).match(/VERSION\s*=\s*'([0-9a-f]{12})'/);
     if (m && m[1] && m[1] !== APP_VERSION && !store.get('versions', []).includes(m[1])) await navigator.serviceWorker.register('sw.js?v=' + m[1]);
   } catch {}

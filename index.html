@@ -13,8 +13,8 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>Hite · ITE Study</title>
-<script src="theme.js?v=b1d8499d8045"></script>
-<link rel="stylesheet" href="styles.css?v=b1d8499d8045">
+<script src="theme.js?v=7570d43f7eda"></script>
+<link rel="stylesheet" href="styles.css?v=7570d43f7eda">
 </head>
 <body>
 
@@ -39,11 +39,7 @@
 
 <!-- ============ APP ============ -->
 <div id="app" class="hidden">
-  <header class="appbar" id="appbar">
-    <div class="appbar-inner">
-      <div class="brand"><span class="dot">ITE</span> Hite <small>ITE study</small></div>
-    </div>
-  </header>
+  <header class="appbar" id="appbar" aria-hidden="true"></header>
 
   <div class="container">
 
@@ -85,11 +81,17 @@
 
       <h2 class="section">Quick start</h2>
       <div class="quick-row">
+        <button class="quick-btn" data-quick="5"><div class="big" data-ic="five"></div><div class="t">Quick 5</div><div class="s">Five questions, instant feedback</div></button>
         <button class="quick-btn" data-quick="10"><div class="big" data-ic="quick"></div><div class="t">Quick 10</div><div class="s">Mixed, instant feedback</div></button>
         <button class="quick-btn" id="quickTimed"><div class="big" data-ic="timer"></div><div class="t">Timed 40</div><div class="s" id="timedSub">exam pace</div></button>
         <button class="quick-btn" id="quickMissed"><div class="big" data-ic="missed"></div><div class="t">Missed</div><div class="s" id="missedCount">0 to review</div></button>
         <button class="quick-btn" id="quickFlagged"><div class="big" data-ic="flag"></div><div class="t">Flagged</div><div class="s" id="flaggedCount">none yet</div></button>
         <button class="quick-btn" id="quickFull"><div class="big" data-ic="full"></div><div class="t">Full ITE</div><div class="s">200 questions · scaled score</div></button>
+      </div>
+
+      <div id="tierBox" class="hidden">
+        <h2 class="section">By difficulty <span class="small muted">ABFM national ratings</span></h2>
+        <div class="quick-row" id="tierRow"></div>
       </div>
 
       <h2 class="section">Custom session</h2>
@@ -214,6 +216,7 @@
           <option value="flagged">Flagged</option>
           <option value="noted">Has a note</option>
           <option value="due">Due for review</option>
+          <option value="aiflag">Flagged by AI or errata</option>
         </select>
       </div>
       <div class="match-count" id="browseCount" style="text-align:left;margin-top:12px"></div>
@@ -313,7 +316,7 @@
 <div id="toastHost"></div>
 <div id="updateHost"></div>
 
-<script src="exam-meta.js?v=b1d8499d8045"></script>
-<script src="app.js?v=b1d8499d8045"></script>
+<script src="exam-meta.js?v=7570d43f7eda"></script>
+<script src="app.js?v=7570d43f7eda"></script>
 </body>
 </html>

@@ -20,6 +20,7 @@ same password keeps "remember this device" logins working.
 import argparse
 import base64
 import gzip
+import subprocess
 import hashlib
 import json
 import os
@@ -55,16 +56,55 @@ def clean_text(s: str) -> str:
     return "\n".join(out)
 
 
+# Older forms ship only their hardest questions (ABFM difficulty band >= this),
+# minus items ABFM removed from scoring. None = form not included (2019's handbook
+# has no real difficulty data). Forms not listed ship every question.
+OLDER_FORMS = {2019: None, 2020: 500, 2021: 500}
+
+
+def exam_meta() -> dict:
+    """window.EXAM_META from exam-meta.js, read through Node (no JS parsing in Python)."""
+    js = "global.window={};require(process.argv[1]);console.log(JSON.stringify(window.EXAM_META))"
+    try:
+        return json.loads(subprocess.check_output(["node", "-e", js, str(ROOT / "exam-meta.js")]))
+    except (OSError, subprocess.CalledProcessError) as e:
+        raise SystemExit(f"Need Node.js to read exam-meta.js for the older-form filter: {e}")
+
+
+def included(q, meta) -> bool:
+    y, n = q["year"], q["id"]
+    if y not in OLDER_FORMS:
+        return True
+    cutoff = OLDER_FORMS[y]
+    if cutoff is None:
+        return False
+    if str(n) in meta.get("removed", {}).get(str(y), {}):
+        return False
+    bands = meta.get("difficulty", {}).get(str(y), {})
+    band = next((int(b) for b, ns in bands.items() if n in ns), None)
+    return band is not None and band >= cutoff
+
+
+def load_annotations() -> dict:
+    """annotations.json (gitignored): {"year-id": {"ai": {"s", "w"}, "er": "..."}} merged into the bank."""
+    p = ROOT / "annotations.json"
+    if not p.exists():
+        return {}
+    return {k: v for k, v in json.loads(p.read_text()).items() if not k.startswith("_")}
+
+
 def load_questions() -> tuple:
     """(bank, images): the slim question list for data.enc and {key: [data URL, …]}
     for images.enc. Items with figures carry "im" (how many) so the app can hold
     a placeholder until images.enc has loaded."""
     with open(ROOT / "questions.json") as f:
         raw = json.load(f)
+    meta, notes = exam_meta(), load_annotations()
     slim, images = [], {}
     for q in raw:
-        if not q.get("correctAnswer"):
+        if not q.get("correctAnswer") or not included(q, meta):
             continue
+        note = notes.get(f"{q['year']}-{q['id']}", {})
         if q.get("images"):
             images[f"{q['year']}-{q['id']}"] = q["images"]
         slim.append({
@@ -77,6 +117,8 @@ def load_questions() -> tuple:
             "e": clean_text(q.get("explanation", "")),
             "d": q.get("domain", "General Medicine"),
             **({"im": len(q["images"])} if q.get("images") else {}),
+            **({"ai": note["ai"]} if note.get("ai") else {}),
+            **({"er": note["er"]} if note.get("er") else {}),
         })
     return slim, images
 

@@ -6,3 +6,5 @@ questions.json
 __pycache__/
 *.txt
 critiques/
+*.zip
+annotations.json
