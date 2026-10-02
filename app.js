@@ -6,7 +6,7 @@
    an app update: see migrate() for how older data is carried
    forward (and snapshotted first).
    ============================================================ */
-const APP_VERSION = '8c63f2761cde';
+const APP_VERSION = '41ed57949db7';
 const $ = id => document.getElementById(id);
 const PBKDF2_ITER = 310000;
 const DAY = 86400000;
@@ -1655,22 +1655,41 @@ function openRestore() {
 /* ---------------- service worker / updates ---------------- */
 function registerSW() {
   if (!('serviceWorker' in navigator)) return;
-  navigator.serviceWorker.register('sw.js').then(reg => {
-    if (reg.waiting && navigator.serviceWorker.controller) showUpdateBar(reg);
-    reg.addEventListener('updatefound', () => {
-      const nw = reg.installing; if (!nw) return;
-      nw.addEventListener('statechange', () => { if (nw.state === 'installed' && navigator.serviceWorker.controller) showUpdateBar(reg); });
-    });
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+  const sw = navigator.serviceWorker;
+  const seen = store.get('versions', []);
+  if (!seen.includes(APP_VERSION)) store.set('versions', [APP_VERSION, ...seen].slice(0, 20));
+  let hadController = !!sw.controller;
+  // Register this build's own script URL ("?v=" keeps CDN copies of older sw.js out of it).
+  sw.register('sw.js?v=' + APP_VERSION).then(reg => {
+    if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });   // left waiting by an older build
+    checkLatest();
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { reg.update().catch(() => {}); checkLatest(); } });
   }).catch(() => {});
-  let reloading = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => { if (reloading) return; reloading = true; if (quiz) saveSession(); location.reload(); });
+  sw.addEventListener('controllerchange', () => {
+    if (!hadController) { hadController = true; return; }   // first install, nothing to refresh
+    if (quiz) { saveSession(); showUpdateBar(); } else location.reload();
+  });
 }
-function showUpdateBar(reg) {
+/* Cloudflare caches sw.js for hours, so the browser's own update check can see a stale
+   copy. Read the newest version straight from the origin (unique URL, no cache) and
+   install that exact build. Never goes back to a version this device has run. */
+let checkingLatest = false;
+async function checkLatest() {
+  if (checkingLatest || APP_VERSION.includes('__')) return;
+  checkingLatest = true;
+  try {
+    const r = await fetch('sw.js?t=' + Date.now(), { cache: 'no-store' });
+    // Written so build.py's version stamping (which rewrites "const VERSION = '41ed57949db7'") can't touch it.
+    const m = r.ok && (await r.text()).match(/VERSION\s*=\s*'([0-9a-f]{12})'/);
+    if (m && m[1] && m[1] !== APP_VERSION && !store.get('versions', []).includes(m[1])) await navigator.serviceWorker.register('sw.js?v=' + m[1]);
+  } catch {}
+  checkingLatest = false;
+}
+function showUpdateBar() {
   const host = $('updateHost'); if (host.childElementCount) return;
   const bar = el('div', 'update-bar');
   bar.innerHTML = `<span>Update ready · your progress is kept</span><button id="upNow">Reload</button><button class="later" id="upLater">Later</button>`;
-  bar.querySelector('#upNow').onclick = () => { if (quiz) saveSession(); reg.waiting && reg.waiting.postMessage({ type: 'SKIP_WAITING' }); };
+  bar.querySelector('#upNow').onclick = () => { if (quiz) saveSession(); location.reload(); };
   bar.querySelector('#upLater').onclick = () => bar.remove();
   host.append(bar);
 }

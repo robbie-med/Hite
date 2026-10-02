@@ -1,8 +1,8 @@
 /* Hite service worker — precache the app shell + encrypted bank for offline use.
-   VERSION is stamped by build.py; a new version installs in the background and
-   waits until the user taps "Reload" (or closes the app) so a mid-session update
-   never interrupts anyone. localStorage (progress) is untouched by updates. */
-const VERSION = '8c63f2761cde';
+   VERSION is stamped by build.py. A new version installs in the background and
+   activates at once; the page reloads into it, or shows a Reload bar mid-quiz.
+   localStorage (progress) is untouched by updates. */
+const VERSION = '41ed57949db7';
 const CACHE = 'ite-' + VERSION;
 const ASSETS = [
   './',
@@ -21,11 +21,19 @@ const ASSETS = [
 
 self.addEventListener('install', e => {
   e.waitUntil((async () => {
+    // Fetch exactly this build. "?v=" gives a URL no CDN has cached (Cloudflare holds
+    // .js files for hours) and cache:'reload' skips the browser's HTTP cache, so the
+    // shell can never mix a new sw.js with an old app.js.
     const c = await caches.open(CACHE);
-    await c.addAll(ASSETS);
-    // No open windows (first install, or the app is closed): activate right away.
-    const clients = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
-    if (!clients.length) await self.skipWaiting();
+    await Promise.all(ASSETS.map(async u => {
+      const r = await fetch(new Request(u + '?v=' + VERSION, { cache: 'reload' }));
+      if (!r.ok) throw new Error(`${u}: ${r.status}`);
+      await c.put(u, r);
+    }));
+    // Take over right away. The page reloads itself when it is safe (outside a quiz)
+    // and otherwise offers a Reload bar. Waiting instead strands older installs whose
+    // page has no update bar, and iOS rarely closes a home-screen app fully.
+    await self.skipWaiting();
   })());
 });
 

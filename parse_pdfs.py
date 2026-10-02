@@ -16,21 +16,25 @@ import sys
 from pathlib import Path
 
 def extract_text(pdf_path):
+    # Drop page numbers and "Item #N" image-page headers, which otherwise leak
+    # into the last answer choice on a page. A page number is a bare 1-3 digit
+    # line that is the first or last text on its page. Bare numbers elsewhere are
+    # content: numeric choices on their own line (2022 item 167, 2023 items
+    # 47/115/116) and wrapped text ("…starting at age\n6", 2025 item 158).
     doc = pymupdf.open(pdf_path)
-    text = ""
+    lines = []
     for page in doc:
-        text += page.get_text() + "\n"
+        page_lines = page.get_text().split("\n")
+        filled = [i for i, ln in enumerate(page_lines) if ln.strip()]
+        edges = {filled[0], filled[-1]} if filled else set()
+        for i, ln in enumerate(page_lines):
+            prev = page_lines[i - 1] if i else ""
+            page_no = (i in edges and re.fullmatch(r"\s*\d{1,3}\s*", ln)
+                       and not re.fullmatch(r"\s*[A-E]\)\s*", prev))
+            if not page_no and not re.fullmatch(r"\s*Item\s*#\d+\s*", ln):
+                lines.append(ln)
+        lines.append("")
     doc.close()
-    # Drop page-number footers (bare 1-3 digit lines) and "Item #N" image-page
-    # headers, which otherwise leak into the last answer choice on each page.
-    # A bare number right after a bare "A)" label is a numeric answer choice
-    # (NNT, Tanner stage, hours: 2022 item 167, 2023 items 47/115/116), not a footer.
-    lines, prev = [], ""
-    for ln in text.split("\n"):
-        footer = re.fullmatch(r"\s*\d{1,3}\s*", ln) and not re.fullmatch(r"\s*[A-E]\)\s*", prev)
-        if not footer and not re.fullmatch(r"\s*Item\s*#\d+\s*", ln):
-            lines.append(ln)
-        prev = ln
     return "\n".join(lines)
 
 def split_questions(text, max_items=200, window=6):
