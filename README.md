@@ -60,6 +60,27 @@ Installed apps update on next launch: the service worker fetches
 `<file>?v=<version>` to bypass Cloudflare's cache and activates immediately.
 Updates never touch progress (`migrate()` in `app.js` reads old data forward).
 
+## Question reports by text
+
+Every question has a red **Report** button (the speech-bubble icon next to the
+flag, and "Report" under any explanation). It opens a prefilled email to
+`REPORT_EMAIL` in `app.js` (ite_problem@robbiemed.org) with the item reference
+(`Hite 2024 #123 · Chronic Care Management · I chose B, key D · v4d9259 /
+Problem:`); the person adds what is wrong and sends. No question text leaves
+the app. Handling a report is the `/hite-reports` Claude Code skill
+(`.claude/skills/hite-reports/SKILL.md`).
+
+`sms-bridge/` is an optional SMS route the app does not use yet: a JMP.chat
+number (jmp.chat, US/Canada, $4.99/month) delivers texts to an XMPP account via
+the Cheogram gateway, and `bridge.py daemon` (user service `hite-sms-bridge`)
+files each one in `sms-bridge/data/inbox.jsonl`; `bridge.py send +1… "text"`
+replies. Setup: `cp sms-bridge/.env.example sms-bridge/.env`, fill in the JMP
+account, `./sms-bridge/install.sh`. `sms-bridge/triage.sh` can run the skill
+automatically (`AUTO_TRIAGE=1`, off by default).
+
+Icons are a Google Fonts subset; after adding one to `app.js` run
+`python3 tools/build_symbols.py` (verifies every name is in the font).
+
 ## License
 
 Code: [MIT](LICENSE) © robbie-med, credit required in copies. ABFM questions, keys,

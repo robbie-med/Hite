@@ -6,7 +6,7 @@
    an app update: see migrate() for how older data is carried
    forward (and snapshotted first).
    ============================================================ */
-const APP_VERSION = '4d9259f08e95';
+const APP_VERSION = 'da8536662106';
 const $ = id => document.getElementById(id);
 const PBKDF2_ITER = 310000;
 const DAY = 86400000;
@@ -32,6 +32,7 @@ const ICONS = {
   guess: ['casino', '🎲'], fair: ['thumb_up', '🤔'], certain: ['verified', '💪'], event: ['event', '📅'],
   weak: ['trending_down', '📉'], goal: ['check', '✓'], image: ['image', '🖼️'], five: ['counter_5', '5️⃣'],
   t1: ['signal_cellular_alt_1_bar', '🟢'], t2: ['signal_cellular_alt_2_bar', '🟡'], t3: ['signal_cellular_alt', '🟠'], t4: ['local_fire_department', '🔥'],
+  report: ['sms', '💬'],
 };
 const CONF_IC = ['guess', 'fair', 'certain'];
 const useEmoji = () => settings.icons === 'emoji';
@@ -903,6 +904,21 @@ function lightbox(q, j) {
   document.addEventListener('keydown', onKey, true);
   show(j); document.body.append(lb); close.focus();
 }
+/* ---------------- report a question ----------------
+   Opens a prefilled email with the item reference; the person adds what is wrong and
+   sends. Only the reference is sent, never the item. (An SMS route exists in sms-bridge/
+   if a report number is ever wanted.) */
+const REPORT_EMAIL = 'ite_problem@robbiemed.org';
+function reportText(q, a) {
+  const bits = [`Hite ${q.y} #${q.n}`, q.d];
+  if (q.b) bits.push(bpShort(q.b));
+  if (a && a.pick) bits.push(`I chose ${a.pick}, key ${q.a}`);
+  else if (a && a.revealed) bits.push(`key ${q.a}`);
+  bits.push('v' + APP_VERSION.slice(0, 6));
+  return bits.join(' · ') + '\nProblem: ';
+}
+const reportLink = (q, a) => `mailto:${REPORT_EMAIL}?subject=${encodeURIComponent(`Hite ${q.y} #${q.n}`)}&body=${encodeURIComponent(reportText(q, a))}`;
+function reportQuestion(q, a) { location.href = reportLink(q, a); }
 /* AI currency flag, ABFM errata, and the older-form note, shown with the explanation. */
 function sourceNotes(q) {
   const out = [];
@@ -933,7 +949,9 @@ function renderQuestion() {
   const tools = el('div', 'tools');
   const flag = el('button', 'icon-btn' + (isFlagged(k) ? ' on' : '')); flag.innerHTML = ic('flag'); flag.setAttribute('aria-label', 'Flag question'); flag.title = 'Flag for review (F)';
   flag.onclick = () => { toggleFlag(k); flag.classList.toggle('on', isFlagged(k)); };
-  tools.append(flag); meta.append(tools);
+  const rep = el('button', 'icon-btn report'); rep.innerHTML = ic('report'); rep.setAttribute('aria-label', 'Report a problem with this question'); rep.title = 'Report a problem';
+  rep.onclick = () => reportQuestion(q, quiz && quiz.mode === 'study' ? quiz.ans[k] : null);   // exam mode: no key in the text
+  tools.append(flag, rep); meta.append(tools);
   renderStem($('qText'), q.q);
   if (hasFigures(q)) $('qText').append(figures(q));
   const box = $('choices'); box.innerHTML = '';
@@ -1314,7 +1332,9 @@ function questionDetail(q, { pick = null, revealed = false } = {}) {
     const flag = el('button', 'pill-btn');
     const paintFlag = () => { flag.classList.toggle('on', isFlagged(q.k)); flag.innerHTML = ic('flag') + (isFlagged(q.k) ? 'Flagged' : 'Flag'); };
     paintFlag(); flag.onclick = () => { toggleFlag(q.k); paintFlag(); };
-    tools.append(flag); after.append(tools, noteBox(q.k));
+    const rep = el('button', 'pill-btn report'); rep.innerHTML = ic('report') + 'Report'; rep.title = 'Report a problem with this question';
+    rep.onclick = () => reportQuestion(q, { pick, revealed: true });
+    tools.append(flag, rep); after.append(tools, noteBox(q.k));
   };
   if (revealed) showExpl();
   else { const rb = el('button', 'btn ghost', 'Reveal answer'); rb.style.marginTop = '12px'; rb.onclick = () => { revealed = true; paint(); showExpl(); }; after.append(rb); }
@@ -1734,19 +1754,19 @@ function skipEasyDesc() {
 }
 function renderAbout() {
   $('aboutCard').innerHTML = `
-    <p>Hite is a study tool for the ABFM In‑Training Exam built around what the learning-science literature actually supports, with as little friction as possible between you and the next question.</p>
+    <p>ITE practice built on what the learning-science evidence supports, with as few taps as possible between you and the next question.</p>
     <ul>
-      <li><b>Retrieval practice.</b> Answering from memory beats re-reading; the "testing effect" is one of the most replicated findings in cognitive psychology (Roediger &amp; Karpicke 2006; Dunlosky et al. 2013 rate practice testing "high utility").</li>
-      <li><b>Spacing.</b> Each question is rescheduled with an SM‑2‑style algorithm: longer gaps when you know it, back tomorrow when you miss it (Cepeda et al. 2006). "Study now" pulls due items first.</li>
-      <li><b>Interleaving.</b> Default sessions mix categories instead of blocking one topic, which improves discrimination between similar presentations (Rohrer &amp; Taylor 2007; Kornell &amp; Bjork 2008).</li>
-      <li><b>Metacognition.</b> Rating confidence before you see the answer exposes overconfidence and flags lucky guesses so they are not counted as learned (Koriat &amp; Bjork 2005; Butler, Karpicke &amp; Roediger 2008). Confident misses are prioritised, because correcting a held misconception yields the most.</li>
-      <li><b>Feedback and elaboration.</b> Immediate explanations after each item (Butler, Karpicke &amp; Roediger 2007) plus a one-line note in your own words (Dunlosky's "elaborative interrogation").</li>
-      <li><b>Honest analytics.</b> First-try accuracy, 7-day retention and Wilson confidence intervals keep small samples from fooling you.</li>
-      <li><b>Official exam data.</b> Blueprint categories per item, items ABFM removed from scoring, raw-to-scaled conversion and national PGY means come from the ABFM ITE Score Results Handbooks (${Object.keys(META.years).join(', ') || 'none loaded'}); blueprint weights and timing from the FMCE Information Booklet. Sub-scores by area are hypothesis-generating, as ABFM itself cautions.</li>
+      <li><b>Retrieval practice.</b> Answering from memory beats re-reading (Roediger &amp; Karpicke 2006; Dunlosky et al. 2013).</li>
+      <li><b>Spacing.</b> SM‑2‑style scheduling: longer gaps when you know it, back tomorrow when you miss it (Cepeda et al. 2006). "Study now" takes due items first.</li>
+      <li><b>Interleaving.</b> Sessions mix categories, which sharpens discrimination between similar presentations (Rohrer &amp; Taylor 2007; Kornell &amp; Bjork 2008).</li>
+      <li><b>Metacognition.</b> Rating confidence before the answer exposes overconfidence and keeps lucky guesses from counting as learned (Koriat &amp; Bjork 2005; Butler, Karpicke &amp; Roediger 2008). Confident misses come back first.</li>
+      <li><b>Feedback.</b> The critique right after each item (Butler, Karpicke &amp; Roediger 2007), plus a one-line note in your own words.</li>
+      <li><b>Analytics.</b> First-try accuracy, 7-day retention and Wilson intervals, so small samples don't mislead.</li>
+      <li><b>Exam data.</b> Blueprint categories, items removed from scoring, raw-to-scaled conversion and PGY means are from the ABFM ITE Score Results Handbooks (${Object.keys(META.years).join(', ') || 'none loaded'}); weights and timing from the FMCE Information Booklet. Area sub-scores are hypothesis-generating, as ABFM cautions.</li>
     </ul>
     ${BLUEPRINTS.length ? `<div class="kv" style="margin-top:12px">${BLUEPRINTS.map(b => `<span class="k">${b}</span><span class="v">${META.blueprint[b]}%</span>`).join('')}</div>` : ''}
     <p class="cite" style="margin-top:12px">Bank: ABFM ITE ${YEARS[0]}–${YEARS[YEARS.length - 1]}, ${QUESTIONS.length} items. Category labels are keyword-derived and approximate. Hite is not affiliated with the ABFM.</p>`;
-  $('aboutFoot').innerHTML = `Hite v${APP_VERSION.replace('__VERSION__', 'dev')} · progress is stored only on this device<br>Made by <a href="https://github.com/robbie-med" target="_blank" rel="noopener">robbie-med</a> · <a href="https://github.com/robbie-med/Hite" target="_blank" rel="noopener">open source (MIT)</a><br>Built for family medicine residents. Thanks to my colleague <b>NR</b> for the inspiration.<br>Not affiliated with the ABFM. Questions and critiques © ABFM.`;
+  $('aboutFoot').innerHTML = `Hite v${APP_VERSION.replace('__VERSION__', 'dev')} · progress is stored only on this device<br>Made by <a href="https://github.com/robbie-med" target="_blank" rel="noopener">robbie-med</a> · <a href="https://github.com/robbie-med/Hite" target="_blank" rel="noopener">open source (MIT)</a><br>Built for family medicine residents. Thanks to my colleague <b>NR</b> for the inspiration.<br>Not affiliated with the ABFM. Questions and critiques © ABFM. The ABFM probably wouldn't like this.<br>S.D.G.`;
 }
 
 /* ---------------- backup / import / snapshots ---------------- */
@@ -1898,7 +1918,7 @@ async function checkLatest() {
   checkingLatest = true;
   try {
     const r = await fetch('sw.js?t=' + Date.now(), { cache: 'no-store' });
-    // Written so build.py's version stamping (which rewrites "const VERSION = '4d9259f08e95'") can't touch it.
+    // Written so build.py's version stamping (which rewrites "const VERSION = 'da8536662106'") can't touch it.
     const m = r.ok && (await r.text()).match(/VERSION\s*=\s*'([0-9a-f]{12})'/);
     if (m && m[1] && m[1] !== APP_VERSION && !store.get('versions', []).includes(m[1])) await navigator.serviceWorker.register('sw.js?v=' + m[1]);
   } catch {}

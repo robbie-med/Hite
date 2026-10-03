@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-10-03
+
+- **Report this question:** a red button on every item (next to the flag, and
+  under explanations in Browse and review) opens a prefilled email to
+  ite_problem@robbiemed.org with the item reference; the person adds what is
+  wrong and sends. `/hite-reports` skill documents the triage.
+- **sms-bridge/** (optional, unused by the app for now): receives texts on the
+  maintainer's PC over XMPP (JMP.chat number via the Cheogram gateway) and
+  replies from the command line.
+- **tools/build_symbols.py** regenerates the icon font subset and checks every
+  icon name used in the app is present (the `sms` icon was added this way).
+
 ## 2026-10-02
 
 - **Bank: 884 questions.** Added the hardest 2020 (46) and 2021 (38) items

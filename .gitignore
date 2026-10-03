@@ -13,3 +13,7 @@ critiques/
 
 __pycache__/
 .DS_Store
+
+# SMS bridge: the XMPP account and the texts people send are private
+sms-bridge/.env
+sms-bridge/data/

@@ -1,0 +1,18 @@
+[Unit]
+Description=Hite SMS bridge (JMP/Cheogram XMPP -> sms-bridge/data/inbox.jsonl)
+After=network-online.target
+Wants=network-online.target
+# Five failed starts in ten minutes (e.g. a bad password) stop the loop instead of hammering the server.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=/home/user/Projects/ite/sms-bridge
+ExecStart=/usr/bin/python3 /home/user/Projects/ite/sms-bridge/bridge.py daemon
+Restart=on-failure
+RestartSec=30
+# No port is bound; outbound XMPP only.
+
+[Install]
+WantedBy=default.target
