@@ -8,6 +8,11 @@
    each tone is solved so its CIE L* equals the M3 tone number,
    which keeps M3's contrast guarantees (e.g. 40 on 90, 80 on 20).
    ============================================================ */
+/* Unlocking needs WebCrypto, which browsers only expose over https. A bare
+   "hite.robbiemed.org" in a text message opens as http, so upgrade first. */
+if (location.protocol === 'http:' && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) {
+  location.replace('https://' + location.host + location.pathname + location.search + location.hash);
+}
 (function () {
   const DEFAULT_SEED = '#5b64d6';
   const PRESETS = [

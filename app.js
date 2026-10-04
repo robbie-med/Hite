@@ -6,7 +6,7 @@
    an app update: see migrate() for how older data is carried
    forward (and snapshotted first).
    ============================================================ */
-const APP_VERSION = 'da8536662106';
+const APP_VERSION = '8ef223cab4b8';
 const $ = id => document.getElementById(id);
 const PBKDF2_ITER = 310000;
 const DAY = 86400000;
@@ -213,9 +213,14 @@ async function decryptBank(buf, key) {
   const stream = new Blob([plainGz]).stream().pipeThrough(new DecompressionStream('gzip'));
   return JSON.parse(await new Response(stream).text());
 }
-async function tryUnlock(key, remember) {
-  const buf = await fetchDataBuf();
-  QUESTIONS = await decryptBank(buf, key);   // throws on wrong password
+/* Reasons this browser can't unlock at all, so they aren't reported as a wrong password. */
+function unlockBlocker() {
+  if (!window.isSecureContext || !(window.crypto && crypto.subtle)) return 'This page must be opened over https. Open https://hite.robbiemed.org instead.';
+  if (typeof DecompressionStream === 'undefined') return 'This browser is too old to open Hite. Update it (iPhone: iOS 16.4 or later) and try again.';
+  return '';
+}
+async function tryUnlock(key, remember, bank) {
+  QUESTIONS = bank || await decryptBank(await fetchDataBuf(), key);   // throws on wrong password
   bankKey = key;
   if (remember) {
     const raw = await crypto.subtle.exportKey('raw', key);
@@ -266,12 +271,25 @@ $('loginForm').addEventListener('submit', async e => {
   const btn = $('unlockBtn'), err = $('loginErr');
   btn.disabled = true; btn.textContent = 'Unlocking…'; err.textContent = '';
   try {
+    const problem = unlockBlocker();
+    if (problem) throw new Error(problem);
     const buf = await fetchDataBuf();
     const salt = new Uint8Array(buf.slice(4, 20));
-    const key = await deriveKey($('pw').value, salt);
-    await tryUnlock(key, $('rememberMe').checked);
+    // Forgive a pasted trailing space or an auto-capitalised first letter.
+    const typed = $('pw').value.trim(), tries = [...new Set([typed, typed.toLowerCase()])];
+    let key = null, bank = null;
+    for (const pw of tries) {
+      const k = await deriveKey(pw, salt);
+      try { bank = await decryptBank(buf, k); key = k; break; } catch (e) { if (e && e.name !== 'OperationError') throw e; }
+    }
+    if (!key) throw Object.assign(new Error('wrong password'), { wrongPassword: true });
+    await tryUnlock(key, $('rememberMe').checked, bank);
   } catch (ex) {
-    err.textContent = String(ex && ex.message).includes('fetch') ? 'Could not load question data. Are you online?' : 'Wrong password. Try again.';
+    console.error(ex);
+    const msg = String(ex && ex.message);
+    err.textContent = ex && ex.wrongPassword ? 'Wrong password. Try again.'
+      : msg.includes('fetch') ? 'Could not load question data. Are you online?'
+      : unlockBlocker() || `Hite couldn't start on this browser (${msg}). Try updating it, or open the link in Safari or Chrome.`;
     $('loginBox').classList.add('shake');
     setTimeout(() => $('loginBox').classList.remove('shake'), 450);
     $('pw').select();
@@ -1918,7 +1936,7 @@ async function checkLatest() {
   checkingLatest = true;
   try {
     const r = await fetch('sw.js?t=' + Date.now(), { cache: 'no-store' });
-    // Written so build.py's version stamping (which rewrites "const VERSION = 'da8536662106'") can't touch it.
+    // Written so build.py's version stamping (which rewrites "const VERSION = '8ef223cab4b8'") can't touch it.
     const m = r.ok && (await r.text()).match(/VERSION\s*=\s*'([0-9a-f]{12})'/);
     if (m && m[1] && m[1] !== APP_VERSION && !store.get('versions', []).includes(m[1])) await navigator.serviceWorker.register('sw.js?v=' + m[1]);
   } catch {}
